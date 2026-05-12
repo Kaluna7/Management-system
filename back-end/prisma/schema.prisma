@@ -1,0 +1,60 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model User {
+  id          String   @id @default(cuid())
+  username    String   @unique
+  googleSub   String?  @unique
+  email       String?  @unique
+  displayName String?
+  /** buyers | finance | buyers_admin | finance_admin; null until role is set */
+  role        String?
+  /** bcrypt hash; set when user finishes onboarding (username + password). */
+  passwordHash String?
+  /** SHA-256 hash of role verification code (Google login → choose department). */
+  roleVerifyCodeHash String?
+  roleVerifyExpires  DateTime?
+  /** When a verification email was last sent (any path). Used for anti-spam cooldown. */
+  roleVerifyLastSentAt  DateTime?
+  /** How many times the user used "Resend" (force). Drives 30+ min rules. */
+  roleVerifyResendCount Int @default(0)
+  /**
+   * 0 = default (1 min; >3 resends → 30 min). 2 = user failed code after heavy resend → 1 h lock.
+   */
+  roleVerifyCooldownTier Int @default(0)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model BuyerRecord {
+  id                  String   @id @default(cuid())
+  vendorCode          String
+  vendorName          String
+  incomeType          String
+  agreementFileName   String
+  amount              Float
+  periodStart         DateTime
+  periodEnd           DateTime
+  description         String
+  createdBy           String
+  createdAt           DateTime @default(now())
+  status              String   @default("created")
+  invoiceReceived     Boolean  @default(false)
+  invoice             Json?
+  generatedBy         String?
+  generatedAt         DateTime?
+  stampedPaperFileName String?
+  archivedAt          DateTime?
+  publishedAt         DateTime?
+  /** Set when deadline reminder email was sent to buyers (once per record, MVP). */
+  buyerDeadlineNotifiedAt   DateTime?
+  /** Set when deadline reminder email was sent to finance (once per record, MVP). */
+  financeDeadlineNotifiedAt DateTime?
+  updatedAt           DateTime @updatedAt
+}

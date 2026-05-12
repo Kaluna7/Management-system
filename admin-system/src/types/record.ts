@@ -1,0 +1,23 @@
+export type RecordItem = {
+  id: string;
+  vendorCode: string;
+  vendorName: string;
+  incomeType: string;
+  agreementFileName: string;
+  amount: number;
+  periodStart: string;
+  periodEnd: string;
+  description: string;
+  createdBy: string;
+  createdAt: string;
+  status: string;
+  invoiceReceived: boolean;
+  invoice?: unknown;
+  generatedBy?: string | null;
+  generatedAt?: string | null;
+  stampedPaperFileName?: string | null;
+  archivedAt?: string | null;
+  publishedAt?: string | null;
+  buyerDeadlineNotifiedAt?: string | null;
+  financeDeadlineNotifiedAt?: string | null;
+};

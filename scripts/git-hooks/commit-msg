@@ -1,0 +1,21 @@
+#!/bin/sh
+# Strips Cursor attribution trailers from the commit message (prevents "cursor agent" on GitHub).
+# Enable once per clone from repo root:
+#   git config core.hooksPath scripts/git-hooks
+# Or:  .\scripts\setup-git-hooks.ps1
+#
+# Git for Windows runs this with its bundled sh when you run `git commit`.
+
+msg_file="$1"
+[ -n "$msg_file" ] && [ -f "$msg_file" ] || exit 0
+
+tmp="${msg_file}.tmp.$$"
+: > "$tmp"
+while IFS= read -r line || [ -n "$line" ]; do
+  printf '%s\n' "$line" | grep -qiE '^[[:space:]]*co-authored-by:.*cursor' && continue
+  printf '%s\n' "$line" | grep -qiE '^[[:space:]]*made-with:.*cursor' && continue
+  printf '%s\n' "$line" >> "$tmp"
+done < "$msg_file"
+mv "$tmp" "$msg_file"
+
+exit 0
