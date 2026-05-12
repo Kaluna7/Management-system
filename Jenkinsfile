@@ -5,9 +5,7 @@ pipeline {
         stage('Deploy') {
             steps {
                 sh '''
-                git pull origin main
-                docker-compose up -d --build
-
+                docker compose up -d --build
                 docker image prune -f
                 '''
             }
