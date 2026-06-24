@@ -1,8 +1,19 @@
+// Jenkins Credentials (Manage Jenkins → Credentials → Global → Add Credentials)
+// Type: "Secret text" for each ID below:
+//   ms-postgres-password   — Postgres password
+//   ms-jwt-secret          — JWT signing secret (long random string)
+//   ms-google-client-id    — Google OAuth Web Client ID
+//   ms-smtp-user           — SMTP mailbox email (e.g. noreply@yourdomain.com)
+//   ms-smtp-pass           — SMTP mailbox password (quote not needed in Jenkins UI)
+//
+// .env is generated on every deploy from these credentials — no manual .env editing on server.
+
 pipeline {
     agent any
 
     environment {
         COMPOSE_PROJECT_NAME = 'whsmith-ms'
+        FRONTEND_PORT = '8081'
     }
 
     stages {
@@ -14,59 +25,71 @@ pipeline {
 
         stage('Deploy') {
             steps {
-                sh '''
-                    set -e
+                withCredentials([
+                    string(credentialsId: 'ms-postgres-password', variable: 'POSTGRES_PASSWORD'),
+                    string(credentialsId: 'ms-jwt-secret', variable: 'JWT_SECRET'),
+                    string(credentialsId: 'ms-google-client-id', variable: 'GOOGLE_CLIENT_ID'),
+                    string(credentialsId: 'ms-smtp-user', variable: 'SMTP_USER'),
+                    string(credentialsId: 'ms-smtp-pass', variable: 'SMTP_PASS'),
+                ]) {
+                    sh '''
+                        set -e
 
-                    echo "=== WORKSPACE ==="
-                    pwd
-                    ls -la
+                        echo "=== WORKSPACE ==="
+                        pwd
 
-                    if [ ! -d .git ]; then
-                      echo "ERROR: not a git checkout — fix Jenkins job SCM settings (see docs below)."
-                      exit 1
-                    fi
+                        if [ ! -d .git ]; then
+                          echo "ERROR: not a git checkout — fix Jenkins job SCM settings."
+                          exit 1
+                        fi
 
-                    if [ ! -f docker-compose.yml ]; then
-                      echo "ERROR: docker-compose.yml not found in workspace root."
-                      exit 1
-                    fi
+                        if [ ! -f docker-compose.yml ]; then
+                          echo "ERROR: docker-compose.yml not found in workspace root."
+                          exit 1
+                        fi
 
-                    if [ ! -f .env ]; then
-                      if [ -f .env.docker.example ]; then
-                        echo "WARNING: .env not found — creating from .env.docker.example"
-                        cp .env.docker.example .env
-                        echo "Edit .env on the server with real secrets before production use."
-                      else
-                        echo "ERROR: create .env on the Jenkins server (see .env.docker.example)."
-                        exit 1
-                      fi
-                    fi
+                        echo "=== WRITE .env FROM JENKINS CREDENTIALS ==="
+                        {
+                          echo "POSTGRES_USER=postgres"
+                          printf 'POSTGRES_PASSWORD=%s\n' "$POSTGRES_PASSWORD"
+                          echo "POSTGRES_DB=ms"
+                          echo "FRONTEND_PORT=${FRONTEND_PORT:-8081}"
+                          echo "VITE_API_URL="
+                          printf 'VITE_GOOGLE_CLIENT_ID=%s\n' "$GOOGLE_CLIENT_ID"
+                          printf 'JWT_SECRET=%s\n' "$JWT_SECRET"
+                          printf 'GOOGLE_CLIENT_ID=%s\n' "$GOOGLE_CLIENT_ID"
+                          echo "SMTP_HOST=smtp.hostinger.com"
+                          echo "SMTP_PORT=587"
+                          echo "SMTP_SECURE=false"
+                          printf 'SMTP_USER=%s\n' "$SMTP_USER"
+                          printf 'SMTP_PASS="%s"\n' "$SMTP_PASS"
+                          printf 'SMTP_FROM="Finly <%s>"\n' "$SMTP_USER"
+                          echo "NOTIFY_EMAIL_BUYERS="
+                          echo "NOTIFY_EMAIL_FINANCE="
+                          echo "CRON_SECRET="
+                          echo "DEADLINE_CRON=0 8 * * *"
+                          echo "DEADLINE_CRON_TZ=Asia/Jakarta"
+                          echo "DISABLE_DEADLINE_CRON=false"
+                        } > .env
 
-                    # Avoid common conflicts: 80 (nginx/Jenkins), 8080 (other apps/Jenkins)
-                    if grep -qE '^FRONTEND_PORT=(80|8080)$' .env 2>/dev/null; then
-                      sed -i -E 's/^FRONTEND_PORT=(80|8080)$/FRONTEND_PORT=8081/' .env
-                      echo "Adjusted FRONTEND_PORT to 8081 (ports 80/8080 already in use on this server)."
-                    fi
+                        echo "=== DOCKER COMPOSE DEPLOY ==="
+                        docker compose down || true
+                        docker compose up -d --build
 
-                    echo "=== DOCKER COMPOSE DEPLOY ==="
-                    docker compose down || true
-                    docker compose up -d --build
+                        echo "=== STATUS ==="
+                        docker compose ps
+                        echo "App URL: http://<server-ip>:${FRONTEND_PORT:-8081}/"
 
-                    echo "=== STATUS ==="
-                    docker compose ps
-                    FRONTEND_PORT=$(grep '^FRONTEND_PORT=' .env 2>/dev/null | cut -d= -f2)
-                    FRONTEND_PORT=${FRONTEND_PORT:-8081}
-                    echo "App URL: http://<server-ip>:${FRONTEND_PORT}/"
-
-                    docker image prune -f
-                '''
+                        docker image prune -f
+                    '''
+                }
             }
         }
     }
 
     post {
         failure {
-            echo 'Deploy failed. If you see "not in a git directory", disable Lightweight checkout in the Jenkins job SCM settings.'
+            echo 'Deploy failed. Ensure Jenkins credentials exist: ms-postgres-password, ms-jwt-secret, ms-google-client-id, ms-smtp-user, ms-smtp-pass'
         }
     }
 }
