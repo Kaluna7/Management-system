@@ -6,6 +6,12 @@ pipeline {
     }
 
     stages {
+        stage('Checkout') {
+            steps {
+                checkout scm
+            }
+        }
+
         stage('Deploy') {
             steps {
                 sh '''
@@ -14,6 +20,11 @@ pipeline {
                     echo "=== WORKSPACE ==="
                     pwd
                     ls -la
+
+                    if [ ! -d .git ]; then
+                      echo "ERROR: not a git checkout — fix Jenkins job SCM settings (see docs below)."
+                      exit 1
+                    fi
 
                     if [ ! -f docker-compose.yml ]; then
                       echo "ERROR: docker-compose.yml not found in workspace root."
@@ -24,6 +35,7 @@ pipeline {
                       if [ -f .env.docker.example ]; then
                         echo "WARNING: .env not found — creating from .env.docker.example"
                         cp .env.docker.example .env
+                        echo "Edit .env on the server with real secrets before production use."
                       else
                         echo "ERROR: create .env on the Jenkins server (see .env.docker.example)."
                         exit 1
@@ -45,7 +57,7 @@ pipeline {
 
     post {
         failure {
-            echo 'Deploy failed. Check that Docker is installed on the Jenkins agent and .env is configured.'
+            echo 'Deploy failed. If you see "not in a git directory", disable Lightweight checkout in the Jenkins job SCM settings.'
         }
     }
 }
