@@ -42,12 +42,19 @@ pipeline {
                       fi
                     fi
 
+                    # Port 80 is often used by Jenkins/nginx on the same host
+                    if grep -q '^FRONTEND_PORT=80$' .env 2>/dev/null; then
+                      sed -i 's/^FRONTEND_PORT=80$/FRONTEND_PORT=8080/' .env
+                      echo "Adjusted FRONTEND_PORT to 8080 (port 80 already in use on this server)."
+                    fi
+
                     echo "=== DOCKER COMPOSE DEPLOY ==="
                     docker compose down || true
                     docker compose up -d --build
 
                     echo "=== STATUS ==="
                     docker compose ps
+                    echo "App URL: http://<server-ip>:${FRONTEND_PORT:-8080}/"
 
                     docker image prune -f
                 '''
