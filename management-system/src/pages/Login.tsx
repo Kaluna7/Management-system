@@ -4,7 +4,6 @@ import { FiEye, FiEyeOff } from 'react-icons/fi'
 import { FcGoogle } from 'react-icons/fc'
 import { useNavigate } from 'react-router-dom'
 import { LanguageToggle } from '../components/LanguageToggle'
-import { ThemeToggle } from '../components/ThemeToggle'
 import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
 import { loadLottieWeb, type LottieJson, type LottiePlayer } from '../lib/lottieWeb'
@@ -266,7 +265,6 @@ export function Login() {
   return (
     <div className="portal-shell relative flex min-h-dvh flex-col md:items-center md:justify-center md:px-4 md:py-10 lg:px-6 lg:py-12">
       <div className="absolute right-3 top-3 z-20 flex items-center gap-2 pt-[env(safe-area-inset-top)] sm:right-6 sm:top-6 md:right-8 md:top-8 md:pt-0">
-        <ThemeToggle />
         <LanguageToggle className="portal-input !w-auto !py-2 text-xs font-semibold" />
       </div>
 
