@@ -10,8 +10,10 @@ RUN npm ci
 
 COPY src ./src
 COPY assets ./assets
+COPY scripts ./scripts
+COPY data ./data
 
 ENV NODE_ENV=production
 EXPOSE 3000
 
-CMD ["sh", "-c", "npx prisma db push && node src/server.js"]
+CMD ["sh", "-c", "npx prisma db push && node scripts/import-vendors-from-csv.js data/vendors.csv && node src/server.js"]

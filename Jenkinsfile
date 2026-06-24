@@ -72,9 +72,17 @@ pipeline {
                           echo "DISABLE_DEADLINE_CRON=false"
                         } > .env
 
+                        if [ ! -f back-end/data/vendors.csv ]; then
+                          echo "WARNING: back-end/data/vendors.csv missing — vendor list will be empty."
+                        fi
+
                         echo "=== DOCKER COMPOSE DEPLOY ==="
                         docker compose down || true
                         docker compose up -d --build
+
+                        echo "=== VENDOR IMPORT (on backend start from back-end/data/vendors.csv) ==="
+                        sleep 5
+                        docker compose logs backend --tail 30 | grep -E 'Inserted:|Rows in CSV|import' || true
 
                         echo "=== STATUS ==="
                         docker compose ps

@@ -12,7 +12,8 @@
     "prisma:migrate:deploy": "prisma migrate deploy",
     "prisma:studio": "prisma studio",
     "seed:admins": "node scripts/seed-admin-users.js",
-    "import:vendors": "node scripts/import-vendors-from-csv.js"
+    "import:vendors": "node scripts/import-vendors-from-csv.js",
+    "export:vendors": "node scripts/export-vendors-to-csv.js"
   },
   "keywords": [],
   "author": "",
