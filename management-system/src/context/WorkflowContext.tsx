@@ -8,10 +8,13 @@ import {
   type ReactNode,
 } from 'react'
 import { useAuth } from './AuthContext'
+import { useRealtime } from './RealtimeContext'
 import type { BuyerInput, BuyerRecord, InvoiceData } from '../types/workflow'
+import { apiRequest } from '../utils/apiClient'
+import { normalizeMemoTemplate } from '../utils/invoiceMemoDisplay'
+import { taxPercentForType } from '../utils/invoiceTax'
 
 const STORAGE_KEY = 'management-system-workflow'
-const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:3000'
 const VALID_STATUSES: BuyerRecord['status'][] = [
   'created',
   'invoice_pending',
@@ -25,11 +28,32 @@ type WorkflowContextValue = {
   records: BuyerRecord[]
   isLoading: boolean
   apiConnected: boolean
-  createBuyerData: (input: BuyerInput, createdBy: string) => void
+  createBuyerData: (
+    input: BuyerInput,
+    createdBy: string,
+    createdByRole: 'buyers' | 'finance',
+    agreementUpload: { newFiles: File[] },
+  ) => Promise<void>
+  updateBuyerData: (
+    recordId: string,
+    input: BuyerInput,
+    agreementUpload?: { newFiles: File[]; keepSlots: number[] } | null,
+  ) => Promise<void>
   setInvoiceReceived: (recordId: string, value: boolean) => void
-  createInvoice: (recordId: string, invoice: InvoiceData, financeName: string) => void
-  uploadStampedPaper: (recordId: string, fileName: string) => Promise<void>
-  publishPaper: (recordId: string) => void
+  createInvoice: (
+    recordId: string,
+    invoice: InvoiceData,
+    financeName: string,
+    formulaUpload?: { newFiles: File[]; keepSlots: number[] },
+  ) => Promise<void>
+  uploadStampedPaper: (recordId: string, file: File) => Promise<void>
+  publishPaper: (recordId: string) => Promise<void>
+  requestBuyerEditPermission: (recordId: string, buyerName: string) => Promise<void>
+  resolveBuyerEditRequest: (
+    recordId: string,
+    decision: 'approve' | 'deny',
+    financeName: string,
+  ) => Promise<void>
 }
 
 const WorkflowContext = createContext<WorkflowContextValue | null>(null)
@@ -75,17 +99,35 @@ function normalizeRecord(raw: unknown): BuyerRecord | null {
             : 'Transfer') as InvoiceData['paymentMethod'],
           dueDate: asString(invoiceRaw.dueDate),
           memo: asString(invoiceRaw.memo),
+          memoTemplate: normalizeMemoTemplate(asString(invoiceRaw.memoTemplate)),
+          memoOptionId: asString(invoiceRaw.memoOptionId),
           vatPercent: asNumber(invoiceRaw.vatPercent, 11),
           taxType: (invoiceRaw.taxType === 'Tax art 4(2)'
             ? 'Tax art 4(2)'
             : 'Tax art 23') as InvoiceData['taxType'],
-          taxPercent: asNumber(invoiceRaw.taxPercent, 2),
-          transferTo: asString(invoiceRaw.transferTo, 'Bank Mayapada'),
+          taxPercent: asNumber(
+            invoiceRaw.taxPercent,
+            taxPercentForType(
+              invoiceRaw.taxType === 'Tax art 4(2)' ? 'Tax art 4(2)' : 'Tax art 23',
+            ),
+          ),
+          bankName: asString(invoiceRaw.bankName ?? invoiceRaw.transferTo, 'Bank Mayapada'),
+          transferTo: asString(invoiceRaw.bankName ?? invoiceRaw.transferTo, 'Bank Mayapada'),
           bankBranch: asString(invoiceRaw.bankBranch),
           accountNo: asString(invoiceRaw.accountNo),
           beneficiaryName: asString(invoiceRaw.beneficiaryName),
           formulaFormFileName: asString(invoiceRaw.formulaFormFileName),
+          formulaFormFileNames: (() => {
+            const fromArray = invoiceRaw.formulaFormFileNames
+            if (Array.isArray(fromArray) && fromArray.length > 0) {
+              return fromArray.map((n) => asString(n)).filter(Boolean)
+            }
+            const single = asString(invoiceRaw.formulaFormFileName)
+            return single ? [single] : undefined
+          })(),
           signer: asString(invoiceRaw.signer),
+          signerTitle: asString(invoiceRaw.signerTitle) || undefined,
+          pphEmail: asString(invoiceRaw.pphEmail) || undefined,
         }
       : undefined
 
@@ -95,11 +137,21 @@ function normalizeRecord(raw: unknown): BuyerRecord | null {
     vendorName: asString(record.vendorName),
     incomeType: asString(record.incomeType),
     agreementFileName: asString(record.agreementFileName),
+    agreementFileNames: (() => {
+      const fromArray = record.agreementFileNames
+      if (Array.isArray(fromArray) && fromArray.length > 0) {
+        return fromArray.map((n) => asString(n)).filter(Boolean)
+      }
+      const single = asString(record.agreementFileName)
+      return single ? [single] : undefined
+    })(),
     amount: asNumber(record.amount),
     periodStart: asString(record.periodStart),
     periodEnd: asString(record.periodEnd),
     description: asString(record.description),
     createdBy: asString(record.createdBy),
+    createdByAdmin: record.createdByAdmin === true,
+    createdByRole: asString(record.createdByRole) || undefined,
     createdAt: asString(record.createdAt),
     status: nextStatus,
     invoiceReceived: asBoolean(record.invoiceReceived),
@@ -111,6 +163,16 @@ function normalizeRecord(raw: unknown): BuyerRecord | null {
     publishedAt: asString(record.publishedAt) || undefined,
     buyerDeadlineNotifiedAt: asString(record.buyerDeadlineNotifiedAt) || undefined,
     financeDeadlineNotifiedAt: asString(record.financeDeadlineNotifiedAt) || undefined,
+    buyerEditRequestStatus:
+      record.buyerEditRequestStatus === 'pending' ||
+      record.buyerEditRequestStatus === 'denied' ||
+      record.buyerEditRequestStatus === 'approved'
+        ? record.buyerEditRequestStatus
+        : undefined,
+    buyerEditRequestedAt: asString(record.buyerEditRequestedAt) || undefined,
+    buyerEditRequestedBy: asString(record.buyerEditRequestedBy) || undefined,
+    buyerEditResolvedAt: asString(record.buyerEditResolvedAt) || undefined,
+    buyerEditResolvedBy: asString(record.buyerEditResolvedBy) || undefined,
   }
 }
 
@@ -128,33 +190,26 @@ function loadRecords(): BuyerRecord[] {
   }
 }
 
+function upsertRecordInList(prev: BuyerRecord[], norm: BuyerRecord): BuyerRecord[] {
+  const idx = prev.findIndex((r) => r.id === norm.id)
+  if (idx >= 0) {
+    const next = [...prev]
+    next[idx] = norm
+    return next
+  }
+  return [norm, ...prev]
+}
+
 export function WorkflowProvider({ children }: { children: ReactNode }) {
   const { authToken } = useAuth()
+  const { socket } = useRealtime()
   const [records, setRecords] = useState<BuyerRecord[]>(() => loadRecords())
   const [isLoading, setIsLoading] = useState(true)
   const [apiConnected, setApiConnected] = useState(false)
 
-  const apiFetch = useCallback(
+  const fetchJson = useCallback(
     async <T,>(path: string, init?: RequestInit): Promise<T> => {
-      const headers: Record<string, string> = {
-        'Content-Type': 'application/json',
-      }
-      if (authToken) headers.Authorization = `Bearer ${authToken}`
-      if (init?.headers) {
-        const h = init.headers
-        if (h instanceof Headers) {
-          h.forEach((value, key) => {
-            headers[key] = value
-          })
-        } else if (typeof h === 'object') {
-          Object.assign(headers, h as Record<string, string>)
-        }
-      }
-      const response = await fetch(`${API_BASE_URL}${path}`, { ...init, headers })
-      if (!response.ok) {
-        throw new Error(`API request failed: ${response.status}`)
-      }
-      return response.json() as Promise<T>
+      return apiRequest<T>(path, { ...init, authToken })
     },
     [authToken],
   )
@@ -163,7 +218,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     let mounted = true
     const loadFromApi = async () => {
       try {
-        const raw = await apiFetch<unknown[]>('/api/records')
+        const raw = await fetchJson<unknown[]>('/api/records')
         if (!mounted) return
         setApiConnected(true)
         const data = raw.map((item) => normalizeRecord(item)).filter((r): r is BuyerRecord => r != null)
@@ -180,49 +235,100 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
     return () => {
       mounted = false
     }
-  }, [apiFetch])
+  }, [fetchJson])
+
+  useEffect(() => {
+    if (!socket) return
+
+    const applyRemoteRecord = (raw: unknown) => {
+      const norm = normalizeRecord(raw)
+      if (!norm) return
+      setRecords((prev) => {
+        const next = upsertRecordInList(prev, norm)
+        localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+        return next
+      })
+    }
+
+    socket.on('record:created', applyRemoteRecord)
+    socket.on('record:updated', applyRemoteRecord)
+    return () => {
+      socket.off('record:created', applyRemoteRecord)
+      socket.off('record:updated', applyRemoteRecord)
+    }
+  }, [socket])
 
   const value = useMemo<WorkflowContextValue>(
     () => ({
       records,
       isLoading,
       apiConnected,
-      createBuyerData: (input, createdBy) => {
-        const create = async () => {
-          if (apiConnected) {
-            const created = await apiFetch<unknown>('/api/records', {
-              method: 'POST',
-              body: JSON.stringify({ ...input, createdBy }),
-            })
-            const norm = normalizeRecord(created)
-            if (!norm) return
-            setRecords((prev) => {
-              const next = [norm, ...prev]
-              localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
-              return next
-            })
-            return
-          }
-          const next: BuyerRecord = {
-            id: crypto.randomUUID(),
-            ...input,
-            createdBy,
-            createdAt: new Date().toISOString(),
-            status: 'created',
-            invoiceReceived: false,
-          }
-          setRecords((prev) => {
-            const merged = [next, ...prev]
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(merged))
-            return merged
-          })
+      createBuyerData: async (input, createdBy, createdByRole, agreementUpload) => {
+        if (!apiConnected) {
+          throw new Error('API offline — start the back-end to save files to storage.')
         }
-        void create()
+        const fd = new FormData()
+        fd.append('vendorCode', input.vendorCode)
+        fd.append('vendorName', input.vendorName)
+        fd.append('incomeType', input.incomeType)
+        const names = input.agreementFileNames?.length
+          ? input.agreementFileNames
+          : input.agreementFileName
+            ? [input.agreementFileName]
+            : agreementUpload.newFiles.map((f) => f.name)
+        fd.append('agreementFileName', names[0] ?? '')
+        fd.append('amount', String(input.amount))
+        fd.append('periodStart', input.periodStart)
+        fd.append('periodEnd', input.periodEnd)
+        fd.append('description', input.description)
+        fd.append('createdBy', createdBy)
+        fd.append('createdByRole', createdByRole)
+        for (const file of agreementUpload.newFiles) {
+          fd.append('agreementFiles', file, file.name)
+        }
+        const created = await fetchJson<unknown>('/api/records', { method: 'POST', body: fd })
+        const norm = normalizeRecord(created)
+        if (!norm) throw new Error('Invalid record from server')
+        setRecords((prev) => {
+          const next = upsertRecordInList(prev, norm)
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+          return next
+        })
+      },
+      updateBuyerData: async (recordId, input, agreementUpload) => {
+        if (!apiConnected) {
+          throw new Error('API offline — start the back-end to save changes.')
+        }
+        const fd = new FormData()
+        fd.append('vendorCode', input.vendorCode)
+        fd.append('vendorName', input.vendorName)
+        fd.append('incomeType', input.incomeType)
+        fd.append('amount', String(input.amount))
+        fd.append('periodStart', input.periodStart)
+        fd.append('periodEnd', input.periodEnd)
+        fd.append('description', input.description)
+        if (agreementUpload) {
+          fd.append('agreementKeepSlots', JSON.stringify(agreementUpload.keepSlots))
+          for (const file of agreementUpload.newFiles) {
+            fd.append('agreementFiles', file, file.name)
+          }
+        }
+        const updated = await fetchJson<unknown>(`/api/records/${recordId}`, {
+          method: 'PATCH',
+          body: fd,
+        })
+        const norm = normalizeRecord(updated)
+        if (!norm) throw new Error('Invalid record from server')
+        setRecords((prev) => {
+          const next = prev.map((record) => (record.id === recordId ? norm : record))
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+          return next
+        })
       },
       setInvoiceReceived: (recordId, invoiceReceived) => {
         const update = async () => {
           if (apiConnected) {
-            const updated = await apiFetch<unknown>(`/api/records/${recordId}/invoice-received`, {
+            const updated = await fetchJson<unknown>(`/api/records/${recordId}/invoice-received`, {
               method: 'PATCH',
               body: JSON.stringify({ invoiceReceived }),
             })
@@ -251,45 +357,53 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
         }
         void update()
       },
-      createInvoice: (recordId, invoice, financeName) => {
-        const update = async () => {
-          if (apiConnected) {
-            const updated = await apiFetch<unknown>(`/api/records/${recordId}/invoice`, {
-              method: 'POST',
-              body: JSON.stringify({ invoice, financeName }),
-            })
-            const norm = normalizeRecord(updated)
-            if (!norm) return
-            setRecords((prev) => {
-              const next = prev.map((record) => (record.id === recordId ? norm : record))
-              localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
-              return next
-            })
-            return
-          }
-          setRecords((prev) => {
-            const next = prev.map((record) =>
-              record.id === recordId
-                ? {
-                    ...record,
-                    invoice,
-                    generatedBy: financeName,
-                    generatedAt: new Date().toISOString(),
-                    status: 'document_generated' as const,
-                  }
-                : record,
-            )
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
-            return next
-          })
+      createInvoice: async (recordId, invoice, financeName, formulaUpload) => {
+        if (!apiConnected) {
+          throw new Error('API offline — cannot upload additional document.')
         }
-        void update()
+        const fd = new FormData()
+        fd.append('invoice', JSON.stringify(invoice))
+        fd.append('financeName', financeName)
+        if (formulaUpload) {
+          fd.append('formulaFormKeepSlots', JSON.stringify(formulaUpload.keepSlots))
+          for (const file of formulaUpload.newFiles) {
+            fd.append('formulaFormFiles', file, file.name)
+          }
+        }
+        const updated = await fetchJson<unknown>(`/api/records/${recordId}/invoice`, {
+          method: 'POST',
+          body: fd,
+        })
+        const norm = normalizeRecord(updated)
+        if (!norm) throw new Error('Invalid record from server')
+        setRecords((prev) => {
+          const next = prev.map((record) => (record.id === recordId ? norm : record))
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+          return next
+        })
       },
-      uploadStampedPaper: async (recordId, fileName) => {
+      uploadStampedPaper: async (recordId, file) => {
+        if (!apiConnected) {
+          throw new Error('API offline — cannot upload stamped paper.')
+        }
+        const fd = new FormData()
+        fd.append('file', file, file.name)
+        const updated = await fetchJson<unknown>(`/api/records/${recordId}/stamped-paper`, {
+          method: 'POST',
+          body: fd,
+        })
+        const norm = normalizeRecord(updated)
+        if (!norm) throw new Error('Invalid record from server')
+        setRecords((prev) => {
+          const next = prev.map((record) => (record.id === recordId ? norm : record))
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+          return next
+        })
+      },
+      publishPaper: async (recordId) => {
         if (apiConnected) {
-          const updated = await apiFetch<unknown>(`/api/records/${recordId}/stamped-paper`, {
+          const updated = await fetchJson<unknown>(`/api/records/${recordId}/publish`, {
             method: 'POST',
-            body: JSON.stringify({ fileName }),
           })
           const norm = normalizeRecord(updated)
           if (!norm) throw new Error('Invalid record from server')
@@ -301,13 +415,14 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
           return
         }
         setRecords((prev) => {
+          const now = new Date().toISOString()
           const next = prev.map((record) =>
             record.id === recordId
               ? {
                   ...record,
-                  stampedPaperFileName: fileName,
-                  archivedAt: new Date().toISOString(),
-                  status: 'archived' as const,
+                  publishedAt: now,
+                  archivedAt: record.archivedAt ?? now,
+                  status: 'history' as const,
                 }
               : record,
           )
@@ -315,39 +430,40 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
           return next
         })
       },
-      publishPaper: (recordId) => {
-        const update = async () => {
-          if (apiConnected) {
-            const updated = await apiFetch<unknown>(`/api/records/${recordId}/publish`, {
-              method: 'POST',
-            })
-            const norm = normalizeRecord(updated)
-            if (!norm) return
-            setRecords((prev) => {
-              const next = prev.map((record) => (record.id === recordId ? norm : record))
-              localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
-              return next
-            })
-            return
-          }
-          setRecords((prev) => {
-            const next = prev.map((record) =>
-              record.id === recordId
-                ? {
-                    ...record,
-                    publishedAt: new Date().toISOString(),
-                    status: 'history' as const,
-                  }
-                : record,
-            )
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
-            return next
-          })
+      requestBuyerEditPermission: async (recordId, buyerName) => {
+        if (!apiConnected) {
+          throw new Error('API offline — cannot request edit permission.')
         }
-        void update()
+        const updated = await fetchJson<unknown>(`/api/records/${recordId}/buyer-edit-request`, {
+          method: 'POST',
+          body: JSON.stringify({ buyerName }),
+        })
+        const norm = normalizeRecord(updated)
+        if (!norm) throw new Error('Invalid record from server')
+        setRecords((prev) => {
+          const next = prev.map((record) => (record.id === recordId ? norm : record))
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+          return next
+        })
+      },
+      resolveBuyerEditRequest: async (recordId, decision, financeName) => {
+        if (!apiConnected) {
+          throw new Error('API offline — cannot resolve edit request.')
+        }
+        const updated = await fetchJson<unknown>(`/api/records/${recordId}/buyer-edit-request`, {
+          method: 'PATCH',
+          body: JSON.stringify({ decision, financeName }),
+        })
+        const norm = normalizeRecord(updated)
+        if (!norm) throw new Error('Invalid record from server')
+        setRecords((prev) => {
+          const next = prev.map((record) => (record.id === recordId ? norm : record))
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(next))
+          return next
+        })
       },
     }),
-    [records, isLoading, apiConnected, apiFetch],
+    [records, isLoading, apiConnected, fetchJson],
   )
 
   return <WorkflowContext.Provider value={value}>{children}</WorkflowContext.Provider>

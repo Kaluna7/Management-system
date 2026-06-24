@@ -1,0 +1,8 @@
+# Environment (never commit secrets)
+.env
+!.env.docker.example
+
+# Uploaded buyer/finance documents (kept on disk per record id)
+storage/records/**/*
+!storage/.gitkeep
+!storage/records/.gitkeep

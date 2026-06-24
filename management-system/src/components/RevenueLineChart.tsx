@@ -4,6 +4,7 @@ import * as echarts from 'echarts'
 import type { EChartsOption } from 'echarts'
 import type { StringKey } from '../i18n/strings'
 import type { BuyerRecord } from '../types/workflow'
+import { useTheme } from '../context/ThemeContext'
 import {
   buildArchiveRevenuePoints,
   filterRecordsForArchiveRevenueChart,
@@ -15,6 +16,87 @@ type Props = {
   records: BuyerRecord[]
   t: (key: StringKey) => string
   dateLocale: string
+  role?: 'buyers' | 'finance'
+}
+
+type ChartPalette = {
+  line: string
+  lineShadow: string
+  areaStops: [number, string][]
+  axisPointer: string
+  axisLine: string
+  axisLabel: string
+  splitLine: string
+  tooltipBorder: string
+  tooltipLabel: string
+}
+
+function chartPalette(role: 'buyers' | 'finance', isDark: boolean): ChartPalette {
+  if (role === 'finance') {
+    return isDark
+      ? {
+          line: '#34d399',
+          lineShadow: 'rgba(52, 211, 153, 0.35)',
+          areaStops: [
+            [0, 'rgba(52, 211, 153, 0.35)'],
+            [0.52, 'rgba(16, 185, 129, 0.12)'],
+            [1, 'rgba(6, 78, 59, 0.04)'],
+          ],
+          axisPointer: '#34d399',
+          axisLine: 'rgba(16, 185, 129, 0.28)',
+          axisLabel: 'rgba(167, 243, 208, 0.82)',
+          splitLine: 'rgba(16, 185, 129, 0.1)',
+          tooltipBorder: 'rgba(16, 185, 129, 0.28)',
+          tooltipLabel: '#6ee7b7',
+        }
+      : {
+          line: '#059669',
+          lineShadow: 'rgba(5, 150, 105, 0.18)',
+          areaStops: [
+            [0, 'rgba(5, 150, 105, 0.30)'],
+            [0.52, 'rgba(16, 185, 129, 0.095)'],
+            [1, 'rgba(5, 150, 105, 0.025)'],
+          ],
+          axisPointer: '#10b981',
+          axisLine: '#cbd5e1',
+          axisLabel: '#64748b',
+          splitLine: '#e2e8f0',
+          tooltipBorder: '#e2e8f0',
+          tooltipLabel: '#059669',
+        }
+  }
+
+  return isDark
+    ? {
+        line: '#a78bfa',
+        lineShadow: 'rgba(167, 139, 250, 0.35)',
+        areaStops: [
+          [0, 'rgba(167, 139, 250, 0.35)'],
+          [0.52, 'rgba(139, 92, 246, 0.12)'],
+          [1, 'rgba(88, 28, 135, 0.04)'],
+        ],
+        axisPointer: '#a78bfa',
+        axisLine: 'rgba(139, 92, 246, 0.28)',
+        axisLabel: 'rgba(221, 214, 254, 0.82)',
+        splitLine: 'rgba(139, 92, 246, 0.1)',
+        tooltipBorder: 'rgba(139, 92, 246, 0.28)',
+        tooltipLabel: '#c4b5fd',
+      }
+    : {
+        line: '#6d28d9',
+        lineShadow: 'rgba(109, 40, 217, 0.18)',
+        areaStops: [
+          [0, 'rgba(124, 58, 237, 0.30)'],
+          [0.52, 'rgba(139, 92, 246, 0.095)'],
+          [1, 'rgba(139, 92, 246, 0.025)'],
+        ],
+        axisPointer: '#a78bfa',
+        axisLine: '#cbd5e1',
+        axisLabel: '#64748b',
+        splitLine: '#e2e8f0',
+        tooltipBorder: '#e2e8f0',
+        tooltipLabel: '#7c3aed',
+      }
 }
 
 /** Point shape for chart rows; chart series uses `[tsMs, amount]`. */
@@ -40,9 +122,12 @@ function buildChartOption(opts: {
   yMax: number
   dateLocale: string
   amountLabel: string
+  isDark: boolean
+  role: 'buyers' | 'finance'
 }): EChartsOption {
-  const { seriesData, xMin, xMax, yMin, yMax, dateLocale, amountLabel } = opts
+  const { seriesData, xMin, xMax, yMin, yMax, dateLocale, amountLabel, isDark, role } = opts
   const labelSafe = escapeTooltipText(amountLabel)
+  const palette = chartPalette(role, isDark)
 
   const fmtDate = (v: number | string) => {
     const ms =
@@ -59,6 +144,16 @@ function buildChartOption(opts: {
     })
   }
 
+  const axisLine = palette.axisLine
+  const axisLabel = palette.axisLabel
+  const splitLine = palette.splitLine
+  const tooltipBg = isDark ? 'rgba(26, 23, 46, 0.94)' : 'rgba(255,255,255,0.96)'
+  const tooltipBorder = palette.tooltipBorder
+  const tooltipText = isDark ? '#e9d5ff' : '#334155'
+  const moneyColor = isDark ? '#f5f3ff' : '#0f172a'
+  const whenColor = isDark ? '#c4b5fd99' : '#64748b'
+  const dividerColor = isDark ? 'rgba(139, 92, 246, 0.18)' : '#f1f5f9'
+
   return {
     animation: true,
     animationDuration: 1100,
@@ -69,14 +164,14 @@ function buildChartOption(opts: {
       trigger: 'axis',
       axisPointer: {
         type: 'line',
-        lineStyle: { color: '#a78bfa', width: 2, opacity: 0.55 },
+        lineStyle: { color: palette.axisPointer, width: 2, opacity: isDark ? 0.7 : 0.55 },
       },
-      backgroundColor: 'rgba(255,255,255,0.96)',
-      borderColor: '#e2e8f0',
+      backgroundColor: tooltipBg,
+      borderColor: tooltipBorder,
       borderWidth: 1,
       borderRadius: 10,
       padding: [11, 15],
-      textStyle: { color: '#334155', fontSize: 12 },
+      textStyle: { color: tooltipText, fontSize: 12 },
       formatter(raw: unknown) {
         const list = Array.isArray(raw) ? raw : [raw]
         const item = list[0] as { value?: unknown } | undefined
@@ -91,9 +186,9 @@ function buildChartOption(opts: {
         })
         const money = escapeTooltipText(formatRpId(amount))
         return `<div style="min-width:176px;line-height:1.35;">
-          <div style="font-size:10px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:#7c3aed;">${labelSafe}</div>
-          <div style="font-size:18px;font-weight:700;margin-top:6px;color:#0f172a;">${money}</div>
-          <div style="margin-top:10px;padding-top:10px;border-top:1px solid #f1f5f9;font-size:11px;color:#64748b;">${escapeTooltipText(when)}</div>
+          <div style="font-size:10px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:${palette.tooltipLabel};">${labelSafe}</div>
+          <div style="font-size:18px;font-weight:700;margin-top:6px;color:${moneyColor};">${money}</div>
+          <div style="margin-top:10px;padding-top:10px;border-top:1px solid ${dividerColor};font-size:11px;color:${whenColor};">${escapeTooltipText(when)}</div>
         </div>`
       },
     },
@@ -101,8 +196,8 @@ function buildChartOption(opts: {
       type: 'time',
       min: xMin,
       max: xMax,
-      axisLine: { lineStyle: { color: '#cbd5e1' } },
-      axisLabel: { color: '#64748b', fontSize: 10, formatter: fmtDate },
+      axisLine: { lineStyle: { color: axisLine } },
+      axisLabel: { color: axisLabel, fontSize: 10, formatter: fmtDate },
       splitLine: { show: false },
     },
     yAxis: {
@@ -110,12 +205,12 @@ function buildChartOption(opts: {
       min: yMin,
       max: yMax,
       axisLabel: {
-        color: '#64748b',
+        color: axisLabel,
         fontSize: 10,
         formatter: (val: number) => formatRpId(val),
       },
       splitLine: {
-        lineStyle: { color: '#e2e8f0', type: 'dashed', dashOffset: 0, opacity: 0.72 },
+        lineStyle: { color: splitLine, type: 'dashed', dashOffset: 0, opacity: isDark ? 1 : 0.72 },
       },
     },
     series: [
@@ -123,29 +218,30 @@ function buildChartOption(opts: {
         id: 'archiveRevenue',
         type: 'line',
         data: seriesData,
-        /** Curve “hidup”: numeric smooth (≈Catmull feel); set `true` for max softness. */
         smooth: 0.62,
         smoothMonotone: 'x',
         symbol: 'none',
         sampling: 'none',
         lineStyle: {
           width: 2.6,
-          color: '#6d28d9',
+          color: palette.line,
           cap: 'round',
           join: 'round',
-          shadowBlur: 6,
-          shadowColor: 'rgba(109, 40, 217, 0.18)',
+          shadowBlur: isDark ? 10 : 6,
+          shadowColor: palette.lineShadow,
         },
         emphasis: {
           focus: 'series',
           lineStyle: { width: 3.2 },
         },
         areaStyle: {
-          color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
-            { offset: 0, color: 'rgba(124, 58, 237, 0.30)' },
-            { offset: 0.52, color: 'rgba(139, 92, 246, 0.095)' },
-            { offset: 1, color: 'rgba(139, 92, 246, 0.025)' },
-          ]),
+          color: new echarts.graphic.LinearGradient(
+            0,
+            0,
+            0,
+            1,
+            palette.areaStops.map(([offset, color]) => ({ offset, color })),
+          ),
         },
       },
     ],
@@ -157,10 +253,10 @@ function EmptyZeroChart({ t }: { t: (key: StringKey) => string }) {
     <div
       role="img"
       aria-label={t('chartArchiveRevenueTitle')}
-      className="w-full rounded-xl border border-dashed border-slate-200 bg-slate-50/90 px-3 py-3 sm:px-4 sm:py-3.5"
+      className="portal-chart-empty w-full px-3 py-3 sm:px-4 sm:py-3.5"
     >
-      <p className="text-center text-[11px] leading-snug text-slate-600 sm:text-left">{t('chartArchiveEmpty')}</p>
-      <p className="mt-1 text-center text-[10px] leading-snug text-slate-500 sm:text-left">
+      <p className="portal-body text-center text-[11px] leading-snug sm:text-left">{t('chartArchiveEmpty')}</p>
+      <p className="portal-muted mt-1 text-center text-[10px] leading-snug sm:text-left">
         {t('chartStartsAtZero')}
       </p>
     </div>
@@ -172,12 +268,12 @@ function ArchiveRangeEmptyChart({ t }: { t: (key: StringKey) => string }) {
     <div
       role="status"
       aria-label={t('chartArchiveRangeEmpty')}
-      className="w-full rounded-xl border border-dashed border-amber-200/90 bg-amber-50/60 px-3 py-3 sm:px-4 sm:py-3.5"
+      className="portal-chart-warn w-full px-3 py-3 sm:px-4 sm:py-3.5"
     >
-      <p className="text-center text-[11px] font-medium leading-snug text-amber-950/90 sm:text-left">
+      <p className="text-center text-[11px] font-medium leading-snug text-amber-950/90 dark:text-amber-200 sm:text-left">
         {t('chartArchiveRangeEmpty')}
       </p>
-      <p className="mt-1 text-center text-[10px] leading-snug text-amber-900/75 sm:text-left">
+      <p className="mt-1 text-center text-[10px] leading-snug text-amber-900/75 dark:text-amber-300/70 sm:text-left">
         {t('chartArchiveRangeEmptyHint')}
       </p>
     </div>
@@ -202,7 +298,7 @@ function ChartTimeRangeToolbar({
 }) {
   return (
     <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-      <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">{t('chartTimeRange')}</p>
+      <p className="portal-muted text-[11px] font-semibold uppercase tracking-wide">{t('chartTimeRange')}</p>
       <div className="flex flex-wrap gap-1.5" role="group" aria-label={t('chartTimeRange')}>
         {RANGE_OPTIONS.map(({ value, labelKey }) => (
           <button
@@ -210,11 +306,7 @@ function ChartTimeRangeToolbar({
             type="button"
             onClick={() => onRangeChange(value)}
             aria-pressed={range === value}
-            className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition sm:px-3 ${
-              range === value
-                ? 'bg-violet-600 text-white shadow-sm'
-                : 'border border-slate-200 bg-white text-slate-700 hover:border-violet-200 hover:bg-violet-50/60'
-            }`}
+            className={range === value ? 'portal-chart-toolbar-active' : 'portal-chart-toolbar-idle'}
           >
             {t(labelKey)}
           </button>
@@ -224,7 +316,8 @@ function ChartTimeRangeToolbar({
   )
 }
 
-export function RevenueLineChart({ records, t, dateLocale }: Props) {
+export function RevenueLineChart({ records, t, dateLocale, role = 'buyers' }: Props) {
+  const { isDark } = useTheme()
   const [range, setRange] = useState<ArchiveRevenueChartRange>('all')
   const amountLabel = t('chartTooltipAmountLabel')
 
@@ -246,7 +339,6 @@ export function RevenueLineChart({ records, t, dateLocale }: Props) {
     )
   }, [filteredRecords])
 
-  /** Raw archive points only (no synthetic baseline). */
   const rawSeriesData = useMemo((): [number, number][] => rows.map((d) => [d.ts, d.cumulative]), [rows])
 
   const xExtent = useMemo(() => {
@@ -259,7 +351,6 @@ export function RevenueLineChart({ records, t, dateLocale }: Props) {
     return { min: minTs - pad, max: maxTs + pad }
   }, [rawSeriesData])
 
-  /** Left anchor at y=0 so line/area start on the baseline (smooth may still ease upward). */
   const seriesData = useMemo((): [number, number][] => {
     if (rawSeriesData.length === 0 || !xExtent) return rawSeriesData
     return [[xExtent.min, 0], ...rawSeriesData]
@@ -289,8 +380,10 @@ export function RevenueLineChart({ records, t, dateLocale }: Props) {
       yMax: yExtent.max,
       dateLocale,
       amountLabel,
+      isDark,
+      role,
     })
-  }, [seriesData, xExtent, yExtent, dateLocale, amountLabel])
+  }, [seriesData, xExtent, yExtent, dateLocale, amountLabel, isDark, role])
 
   const showTimeRangeToolbar = fullArchivePointCount > 0
 

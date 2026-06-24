@@ -1,4 +1,5 @@
 import { useEffect, useId, useRef, useState } from 'react'
+import { ModalCloseButton } from './ModalCloseButton'
 
 export type PeriodRangeValue = { start: string; end: string }
 
@@ -8,6 +9,14 @@ function pad2(n: number) {
 
 export function toIsoDateLocal(d: Date): string {
   return `${d.getFullYear()}-${pad2(d.getMonth() + 1)}-${pad2(d.getDate())}`
+}
+
+export function todayIsoDateLocal(): string {
+  return toIsoDateLocal(new Date())
+}
+
+function isBeforeIsoDate(iso: string, minIso: string): boolean {
+  return iso < minIso
 }
 
 function parseIsoLocal(s: string): Date | null {
@@ -63,9 +72,17 @@ type PeriodRangePickerProps = {
   onChange: (next: PeriodRangeValue) => void
   displayLocale: string
   labels: Labels
+  /** Earliest selectable day (YYYY-MM-DD). Defaults to today; past dates are disabled. */
+  minDate?: string
 }
 
-export function PeriodRangePicker({ value, onChange, displayLocale, labels }: PeriodRangePickerProps) {
+export function PeriodRangePicker({
+  value,
+  onChange,
+  displayLocale,
+  labels,
+  minDate = todayIsoDateLocal(),
+}: PeriodRangePickerProps) {
   const id = useId()
   const rootRef = useRef<HTMLDivElement>(null)
   const [open, setOpen] = useState(false)
@@ -105,6 +122,7 @@ export function PeriodRangePicker({ value, onChange, displayLocale, labels }: Pe
 
   const handleDayClick = (d: Date) => {
     const iso = toIsoDateLocal(d)
+    if (isBeforeIsoDate(iso, minDate)) return
     const { start, end } = value
     if (!start || (start && end)) {
       onChange({ start: iso, end: '' })
@@ -144,6 +162,7 @@ export function PeriodRangePicker({ value, onChange, displayLocale, labels }: Pe
               return <div key={`e-${y}-${m}-${idx}`} className="aspect-square" />
             }
             const iso = toIsoDateLocal(cell)
+            const isPast = isBeforeIsoDate(iso, minDate)
             const inRange =
               value.start &&
               value.end &&
@@ -158,14 +177,17 @@ export function PeriodRangePicker({ value, onChange, displayLocale, labels }: Pe
               <button
                 key={iso}
                 type="button"
+                disabled={isPast && !isStart && !isEnd}
                 onClick={() => handleDayClick(cell)}
                 className={`relative flex aspect-square items-center justify-center rounded-lg text-xs font-medium transition sm:text-sm ${
-                  inRange && !isStart && !isEnd
-                    ? 'bg-violet-100 text-violet-900'
-                    : isStart || isEnd
-                      ? 'bg-violet-600 text-white shadow-sm'
-                      : 'text-slate-700 hover:bg-violet-50'
-                } ${isToday && !isStart && !isEnd ? 'ring-1 ring-violet-300 ring-inset' : ''} `}
+                  isPast && !isStart && !isEnd
+                    ? 'cursor-not-allowed text-slate-300'
+                    : inRange && !isStart && !isEnd
+                      ? 'bg-violet-100 text-violet-900'
+                      : isStart || isEnd
+                        ? 'bg-violet-600 text-white shadow-sm'
+                        : 'text-slate-700 hover:bg-violet-50'
+                } ${isToday && !isStart && !isEnd && !isPast ? 'ring-1 ring-violet-300 ring-inset' : ''} `}
               >
                 {cell.getDate()}
               </button>
@@ -212,7 +234,7 @@ export function PeriodRangePicker({ value, onChange, displayLocale, labels }: Pe
             className="max-h-[min(90vh,560px)] w-full max-w-lg overflow-y-auto rounded-2xl border border-slate-200 bg-white p-3 shadow-2xl sm:max-w-2xl sm:p-4"
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="mb-3 flex items-center justify-between gap-2 border-b border-slate-100 pb-2">
+            <div className="mb-3 flex items-center gap-2 border-b border-slate-100 pb-2">
               <button
                 type="button"
                 className="rounded-lg border border-slate-200 px-2 py-1 text-sm text-slate-600 hover:bg-slate-50"
@@ -221,6 +243,7 @@ export function PeriodRangePicker({ value, onChange, displayLocale, labels }: Pe
               >
                 ‹
               </button>
+              <div className="flex-1" />
               <button
                 type="button"
                 className="rounded-lg border border-slate-200 px-2 py-1 text-sm text-slate-600 hover:bg-slate-50"
@@ -229,6 +252,7 @@ export function PeriodRangePicker({ value, onChange, displayLocale, labels }: Pe
               >
                 ›
               </button>
+              <ModalCloseButton onClick={() => setOpen(false)} />
             </div>
             <div className="flex flex-col gap-4 sm:flex-row sm:gap-2">
               {renderMonth(panelAnchor)}

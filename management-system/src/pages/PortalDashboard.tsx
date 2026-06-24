@@ -2,19 +2,29 @@ import {
   useCallback,
   useEffect,
   useMemo,
-  useRef,
   useState,
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react'
-import { Navigate, NavLink, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
-import { LanguageToggle } from '../components/LanguageToggle'
-import { PeriodRangePicker, type PeriodRangeValue } from '../components/PeriodRangePicker'
+import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
+import { AgreementFilesField } from '../components/AgreementFilesField'
+import { FormulaFormFilesField } from '../components/FormulaFormFilesField'
+import { BuyerRecordDetailView } from '../components/BuyerRecordDetailView'
+import { FinanceRecordDetailFooter, FinanceRecordDetailView } from '../components/FinanceRecordDetailView'
+import { InvoiceBankAccountFields } from '../components/InvoiceBankAccountFields'
+import { InvoicePrintModal } from '../components/InvoicePrintModal'
+import { ModalCloseButton } from '../components/ModalCloseButton'
+import { InvoiceSignerFields } from '../components/InvoiceSignerFields'
+import { StampedPaperUploadButton } from '../components/StampedPaperUploadButton'
+import { PeriodRangePicker, todayIsoDateLocal, type PeriodRangeValue } from '../components/PeriodRangePicker'
 import { RevenueLineChart } from '../components/RevenueLineChart'
 import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
 import { useWorkflow } from '../context/WorkflowContext'
 import type { StringKey } from '../i18n/strings'
+import { EMPTY_BANK_DETAILS, type InvoiceBankDetails } from '../types/invoiceBank'
+import { EMPTY_SIGNER_SELECTION, type InvoiceSignerSelection } from '../types/invoiceSigner'
+import { signerSelectionFromInvoice } from '../utils/invoiceSignerSelection'
 import type { BuyerRecord, InvoiceData } from '../types/workflow'
 import {
   defaultDownloadFileName,
@@ -22,15 +32,63 @@ import {
   downloadRecordFileFromApi,
   type ArchiveFileKind,
 } from '../utils/recordFileDownload'
-import { formatIdrWhileTyping, parseIdrAmountInput } from '../utils/idrAmountInput'
-
-const vendorOptions = [
-  { code: 'V001', name: 'PT Sumber Retail Utama' },
-  { code: 'V002', name: 'PT Prima Logistic Nusantara' },
-  { code: 'V003', name: 'PT Mitra Promosi Indonesia' },
-]
-
-const signerOptions = ['Finance Manager', 'Head of Finance', 'Controller']
+import { formatIdrAmountInputValue, formatIdrWhileTyping, parseIdrAmountInput } from '../utils/idrAmountInput'
+import {
+  canBuyerRequestEditPermission,
+  hasApprovedBuyerEditRequest,
+  hasPendingBuyerEditRequest,
+  isBuyerEditRequestDenied,
+  isBuyerPortalRecordEditable,
+  isBuyerRecordInFinanceTask,
+  isFinanceTaskPausedForBuyerEdit,
+  periodIsoToDateInput,
+} from '../utils/recordBuyerEdit'
+import { INVOICE_COMPANY } from '../data/invoiceCompany'
+import { PortalLayout } from '../components/PortalLayout'
+import { recordFileUrl } from '../utils/apiClient'
+import {
+  FORMULA_FORM_MAX,
+  formulaFormFileNamesForSave,
+  formulaFormFileNamesFromInvoice,
+} from '../utils/formulaFormFiles'
+import {
+  AGREEMENT_MAX,
+  agreementFileNamesForSave,
+  agreementFileNamesFromRecord,
+} from '../utils/agreementFiles'
+import {
+  financeInvoiceNotDone,
+  financeNeedsStampUpload,
+  financeStampReadyToPublish,
+  filterFinanceOverviewRecords,
+  filterFinanceTaskRecords,
+  isRecordFinishedOffOverview,
+} from '../utils/financeRecordScope'
+import { countPeriodExpiryReminders, daysUntilPeriodEnd } from '../utils/periodExpiryReminders'
+import type { PortalNotificationItem } from '../utils/portalNotifications'
+import { RecordListFilterBar, type RecordListFilterOption } from '../components/RecordListFilterBar'
+import { RecordWorkingOverlay } from '../components/RecordWorkingOverlay'
+import { PortalSummaryIcon, summaryIconKind } from '../components/PortalSummaryIcon'
+import { RecordPublishSuccessModal } from '../components/RecordPublishSuccessModal'
+import {
+  listRecordDocuments,
+  RecordDocumentPreviewModal,
+  type RecordFileKind,
+} from '../components/RecordDocumentPreviewModal'
+import { useRealtime } from '../context/RealtimeContext'
+import { useRecordPublishCelebration } from '../hooks/useRecordPublishCelebration'
+import { recordWorkingByOther } from '../utils/recordWorking'
+import {
+  previewInvoiceNumberForRecord,
+  resolveInvoiceNumberForRecord,
+} from '../utils/invoiceNumberFromRecord'
+import { VendorPickerField } from '../components/VendorPickerField'
+import { useVendors } from '../hooks/useVendors'
+import {
+  filterRecordList,
+  recordMatchesSearch,
+  type RecordListStatusFilter,
+} from '../utils/recordListFilter'
 
 function formatDate(isoDate: string, dateLocale: string) {
   const date = new Date(isoDate)
@@ -42,46 +100,62 @@ function formatDate(isoDate: string, dateLocale: string) {
   })
 }
 
-function daysUntil(endDate: string) {
-  const today = new Date()
-  const end = new Date(endDate)
-  const ms = end.getTime() - today.setHours(0, 0, 0, 0)
-  return Math.ceil(ms / (1000 * 60 * 60 * 24))
-}
-
-const FINANCE_INVOICE_DONE_STATUSES = ['document_generated', 'archived', 'history'] as const
-
-function financeInvoiceNotDone(record: BuyerRecord) {
-  return !FINANCE_INVOICE_DONE_STATUSES.includes(record.status as (typeof FINANCE_INVOICE_DONE_STATUSES)[number])
-}
-
 function parseNumberInput(value: string) {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : 0
 }
 
-/** Archived / published — hidden from Overview for both Buyers and Finance. */
-function isRecordFinishedOffOverview(record: BuyerRecord) {
-  return record.status === 'archived' || record.status === 'history'
+function invoiceFieldDefaults(invoice: InvoiceData | undefined, userName: string) {
+  if (!invoice) {
+    return {
+      number: '',
+      attn: userName,
+      paymentMethod: 'Transfer' as InvoiceData['paymentMethod'],
+      dueDate: '',
+      memo: '',
+      vatPercent: 11,
+      taxType: 'Tax art 23' as InvoiceData['taxType'],
+      taxPercent: 2,
+      transferTo: 'Bank Mayapada',
+      bankBranch: '',
+      accountNo: '',
+      beneficiaryName: '',
+      signer: '',
+      signerTitle: '',
+      formulaFormFileName: '',
+      pphEmail: INVOICE_COMPANY.pphNoteEmail,
+    }
+  }
+  return {
+    number: invoice.number,
+    attn: invoice.attn,
+    paymentMethod: invoice.paymentMethod,
+    dueDate: invoice.dueDate,
+    memo: invoice.memo,
+    vatPercent: invoice.vatPercent,
+    taxType: invoice.taxType,
+    taxPercent: invoice.taxPercent,
+    transferTo: invoice.bankName ?? invoice.transferTo,
+    bankBranch: invoice.bankBranch,
+    accountNo: invoice.accountNo,
+    beneficiaryName: invoice.beneficiaryName,
+    signer: invoice.signer,
+    signerTitle: invoice.signerTitle ?? '',
+    formulaFormFileName: invoice.formulaFormFileName,
+    pphEmail: invoice.pphEmail?.trim() || INVOICE_COMPANY.pphNoteEmail,
+  }
 }
 
-function summaryFrom(records: BuyerRecord[]) {
-  const dashboardPool = records.filter((r) => !isRecordFinishedOffOverview(r))
+function summaryFrom(records: BuyerRecord[], userRole: 'buyers' | 'finance') {
+  const dashboardPool =
+    userRole === 'finance'
+      ? filterFinanceOverviewRecords(records)
+      : records.filter((r) => !isRecordFinishedOffOverview(r))
 
-  const reminderCount = dashboardPool.filter(
-    (record) => daysUntil(record.periodEnd) <= 5 && record.status !== 'history',
-  ).length
-  /** Invoice saved by finance (document out) through archive/history — not only rows still in Task. */
-  const financeInvoicesDone = records.filter((record) =>
-    ['document_generated', 'archived', 'history'].includes(record.status),
-  ).length
+  const reminderCount = countPeriodExpiryReminders(dashboardPool)
   return [
     { labelKey: 'summaryTotalBuyerData' as const, value: String(dashboardPool.length) },
     { labelKey: 'summaryReminder' as const, value: String(reminderCount) },
-    {
-      labelKey: 'summaryFinanceInvoicesDone' as const,
-      value: String(financeInvoicesDone),
-    },
   ] satisfies { labelKey: StringKey; value: string }[]
 }
 
@@ -101,104 +175,229 @@ function calendarDayMatchesTimestamp(ms: number, ymd: string) {
   return d.getFullYear() === y && d.getMonth() + 1 === m && d.getDate() === day
 }
 
-function navLinkClass(isActive: boolean, layout: 'row' | 'stack') {
-  const active = isActive ? 'bg-violet-600 text-white' : 'text-slate-600 hover:bg-violet-50 hover:text-violet-700'
-  const layoutCls =
-    layout === 'stack'
-      ? 'block w-full text-left'
-      : 'inline-flex items-center justify-center whitespace-nowrap'
-  return `rounded-lg px-3 py-2 text-sm font-medium transition ${active} ${layoutCls}`
+function PaperDownloadIcon({ className = 'h-4 w-4' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M7 10l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M12 15V3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  )
 }
 
-function ArchivePublishedDownloadButtons({
-  record,
-  apiConnected,
-  t,
-  onDownloadKind,
-  onDownloadSummary,
-}: {
-  record: BuyerRecord
-  apiConnected: boolean
-  t: (key: StringKey) => string
-  onDownloadKind: (kind: ArchiveFileKind) => void | Promise<void>
-  onDownloadSummary: () => void
-}) {
-  const btnClass =
-    'rounded-lg border border-emerald-400/80 bg-white px-2.5 py-1.5 text-xs font-semibold text-emerald-950 transition hover:bg-emerald-100/80'
-
+/** Document-with-arrow-up (upload stamped paper). */
+function StampedPaperUploadIcon({ className = 'h-4 w-4' }: { className?: string }) {
   return (
-    <div className="mt-3 flex flex-col gap-2 border-t border-emerald-200/80 pt-3">
-      <p className="text-[10px] font-semibold uppercase tracking-wide text-emerald-900">
-        {t('archivePublishedDocumentsLabel')}
-      </p>
-      <div className="flex flex-wrap gap-2">
-        {apiConnected ? (
-          <>
-            <button type="button" className={btnClass} onClick={() => void onDownloadKind('stamped-paper')}>
-              {t('archiveDownloadStampedPaper')}
-            </button>
-            {record.invoice ? (
-              <button type="button" className={btnClass} onClick={() => void onDownloadKind('formula-form')}>
-                {t('archiveDownloadFormulaForm')}
-              </button>
-            ) : null}
-            {record.agreementFileName ? (
-              <button type="button" className={btnClass} onClick={() => void onDownloadKind('agreement')}>
-                {t('archiveDownloadAgreement')}
-              </button>
-            ) : null}
-          </>
-        ) : (
-          <button type="button" className={btnClass} onClick={onDownloadSummary}>
-            {t('archiveDownloadSummaryOffline')}
-          </button>
-        )}
-      </div>
-    </div>
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <path
+        d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+      <path d="M14 2v4a2 2 0 0 0 2 2h4" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M12 12v6" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="m9 15 3-3 3 3" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
   )
 }
 
 function FinanceTaskRow({
   record,
   onPickFile,
+  onPublishStamp,
+  onEdit,
+  onDownloadInvoice,
+  onEngage,
   uploadLabel,
+  stampUploadLabels,
+  editLabel,
+  downloadInvoiceLabel,
   financeByText,
+  zebraClass,
+  hasInvoice,
+  blocked,
+  remoteWorking,
+  processingLabel,
+  overlayTitle,
+  editRequestTitle,
+  editRequestHint,
+  approveEditLabel,
+  denyEditLabel,
+  onApproveEditRequest,
+  onDenyEditRequest,
+  resolvingEditRequest,
+  buyerEditingLocked,
+  buyerEditingTitle,
+  buyerEditingHint,
 }: {
   record: BuyerRecord
-  onPickFile: (recordId: string, file: File) => void
+  onPickFile: (recordId: string, file: File) => void | Promise<void>
+  onPublishStamp: (recordId: string) => void | Promise<void>
+  onEdit: (recordId: string) => void
+  onDownloadInvoice: () => void
+  onEngage: (recordId: string) => void
   uploadLabel: string
+  stampUploadLabels: {
+    close: string
+    confirmUpload: string
+    viewStamped: string
+    publish: string
+    previewUnavailable: string
+    uploading: string
+    publishing: string
+  }
+  editLabel: string
+  downloadInvoiceLabel: string
   financeByText: string
+  zebraClass: string
+  hasInvoice: boolean
+  blocked: boolean
+  remoteWorking: { userName: string; avatarPreset?: string | null } | null
+  processingLabel: string
+  overlayTitle?: string
+  editRequestTitle: string
+  editRequestHint: string
+  approveEditLabel: string
+  denyEditLabel: string
+  onApproveEditRequest: (recordId: string) => void | Promise<void>
+  onDenyEditRequest: (recordId: string) => void | Promise<void>
+  resolvingEditRequest: boolean
+  buyerEditingLocked: boolean
+  buyerEditingTitle: string
+  buyerEditingHint: string
 }) {
-  const inputRef = useRef<HTMLInputElement>(null)
+  const invoiceNo = record.invoice?.number?.trim()
+  const stampUploaded = financeStampReadyToPublish(record)
+  const pendingBuyerEdit = hasPendingBuyerEditRequest(record)
+  const taskPaused = buyerEditingLocked
+  const rowBlocked = blocked || taskPaused
   return (
-    <article className="rounded-xl border border-slate-200 p-4">
-      <p className="font-medium">{record.vendorName}</p>
-      <p className="text-xs text-slate-500">{financeByText}</p>
-      <input
-        ref={inputRef}
-        type="file"
-        className="sr-only"
-        accept=".pdf,application/pdf,image/*"
-        onChange={(e) => {
-          const f = e.target.files?.[0]
-          if (f) onPickFile(record.id, f)
-          e.target.value = ''
-        }}
-      />
-      <button
-        type="button"
-        onClick={() => inputRef.current?.click()}
-        className="mt-3 rounded-lg bg-slate-800 px-3 py-2 text-xs font-semibold text-white"
+    <div className="portal-table-group">
+      {pendingBuyerEdit ? (
+        <div className="portal-table-banner border-amber-200 bg-amber-50/90 dark:border-amber-500/30 dark:bg-amber-950/25">
+          <p className="text-sm font-semibold text-amber-950 dark:text-amber-100">{editRequestTitle}</p>
+          <p className="mt-1 text-xs text-amber-900/85 dark:text-amber-100/80">{editRequestHint}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={blocked || resolvingEditRequest}
+              onClick={() => void onApproveEditRequest(record.id)}
+              className="portal-btn-primary px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {approveEditLabel}
+            </button>
+            <button
+              type="button"
+              disabled={blocked || resolvingEditRequest}
+              onClick={() => void onDenyEditRequest(record.id)}
+              className="portal-btn-secondary px-3 py-2 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              {denyEditLabel}
+            </button>
+          </div>
+        </div>
+      ) : null}
+      {taskPaused ? (
+        <div className="portal-table-banner border-slate-300 bg-slate-200/60 dark:border-slate-600/50 dark:bg-slate-900/40">
+          <p className="text-sm font-semibold text-slate-700 dark:text-slate-200">{buyerEditingTitle}</p>
+          <p className="mt-1 text-xs text-slate-600 dark:text-slate-300">{buyerEditingHint}</p>
+        </div>
+      ) : null}
+      <div
+        className={`portal-table-row portal-table-row--task relative ${zebraClass} ${rowBlocked ? 'z-20 opacity-60' : ''} ${pendingBuyerEdit ? '!border-amber-200 dark:!border-amber-500/30' : ''} ${taskPaused ? 'bg-slate-100/90 dark:bg-slate-800/40' : ''}`}
       >
-        {uploadLabel}
-      </button>
-    </article>
+        <div className="portal-table-td min-w-0">
+          <p className="truncate font-semibold portal-heading">{record.vendorName}</p>
+          <p className="portal-muted truncate text-xs">{record.vendorCode}</p>
+        </div>
+        <div className="portal-table-td min-w-0">
+          {invoiceNo ? (
+            <p className="truncate text-xs portal-muted" title={invoiceNo}>
+              {invoiceNo}
+            </p>
+          ) : (
+            <span className="text-xs portal-muted">—</span>
+          )}
+        </div>
+        <div className="portal-table-td min-w-0">
+          <p className="truncate text-xs portal-muted">{financeByText}</p>
+        </div>
+        <div className={`portal-table-td flex min-w-0 flex-wrap gap-1.5 ${rowBlocked ? 'pointer-events-none' : ''}`}>
+          <button
+            type="button"
+            onClick={() => {
+              onEngage(record.id)
+              onDownloadInvoice()
+            }}
+            disabled={!hasInvoice || rowBlocked}
+            className="portal-btn-secondary inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <PaperDownloadIcon className="h-3.5 w-3.5" />
+            {downloadInvoiceLabel}
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              onEngage(record.id)
+              onEdit(record.id)
+            }}
+            disabled={rowBlocked}
+            className="portal-btn-secondary inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+              <path
+                d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5Z"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+            {editLabel}
+          </button>
+          <StampedPaperUploadButton
+            recordId={record.id}
+            disabled={rowBlocked}
+            onConfirm={async (id, file) => {
+              onEngage(id)
+              await onPickFile(id, file)
+            }}
+            onPublish={async (id) => {
+              onEngage(id)
+              await onPublishStamp(id)
+            }}
+            stampUploaded={stampUploaded}
+            uploadedFileName={record.stampedPaperFileName ?? ''}
+            serverPreviewUrl={
+              stampUploaded ? recordFileUrl(record.id, 'stamped-paper') : undefined
+            }
+            labels={{
+              pickFile: uploadLabel,
+              viewStamped: stampUploadLabels.viewStamped,
+              close: stampUploadLabels.close,
+              confirmUpload: stampUploadLabels.confirmUpload,
+              publish: stampUploadLabels.publish,
+              previewUnavailable: stampUploadLabels.previewUnavailable,
+              uploading: stampUploadLabels.uploading,
+              publishing: stampUploadLabels.publishing,
+            }}
+            icon={<StampedPaperUploadIcon className="h-3.5 w-3.5" />}
+          />
+        </div>
+        {remoteWorking ? (
+          <RecordWorkingOverlay
+            processingLabel={processingLabel}
+            userName={remoteWorking.userName}
+            avatarPreset={remoteWorking.avatarPreset}
+            title={overlayTitle}
+          />
+        ) : null}
+      </div>
+    </div>
   )
 }
 
 export function PortalDashboard() {
   const { t, dateLocale, locale } = useLanguage()
-  const { user, logout, authToken } = useAuth()
+  const { user, authToken } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
   const {
@@ -206,20 +405,49 @@ export function PortalDashboard() {
     isLoading,
     apiConnected,
     createBuyerData,
+    updateBuyerData,
     createInvoice,
     uploadStampedPaper,
     publishPaper,
+    requestBuyerEditPermission,
+    resolveBuyerEditRequest,
   } = useWorkflow()
+  const { invoiceEditing, emitInvoiceEditingStart, emitInvoiceEditingStop } = useRealtime()
+  const {
+    success: publishSuccess,
+    dismissSuccess,
+    celebrate: celebratePublish,
+  } = useRecordPublishCelebration(records)
+
+  const { vendors, loading: vendorsLoading, getVendorNameByCode, createVendor } = useVendors()
 
   const userName = user?.name ?? 'User'
+  const currentUserId = user?.id
   const userRole = user?.role ?? 'buyers'
   const userDepartment = user?.departmentLabel ?? 'Department'
-  const summaryCards = useMemo(() => summaryFrom(records), [records])
 
-  const activeDashboardRecords = useMemo(
-    () => records.filter((r) => !isRecordFinishedOffOverview(r)),
-    [records],
+  useEffect(() => {
+    const root = document.documentElement
+    root.classList.remove('portal-shell--finance', 'portal-shell--buyers')
+    if (userRole === 'finance') {
+      root.classList.add('portal-shell--finance')
+    } else if (userRole === 'buyers') {
+      root.classList.add('portal-shell--buyers')
+    }
+    return () => root.classList.remove('portal-shell--finance', 'portal-shell--buyers')
+  }, [userRole])
+
+  const summaryCards = useMemo(() => summaryFrom(records, userRole), [records, userRole])
+
+  const financeTaskRecords = useMemo(
+    () => (userRole === 'finance' ? filterFinanceTaskRecords(records) : []),
+    [records, userRole],
   )
+
+  const activeDashboardRecords = useMemo(() => {
+    if (userRole === 'finance') return filterFinanceOverviewRecords(records)
+    return records.filter((r) => !isRecordFinishedOffOverview(r))
+  }, [records, userRole])
 
   const buyerHistoryRecords = useMemo(
     () =>
@@ -258,14 +486,15 @@ export function PortalDashboard() {
   )
 
   const handleArchivePublishedDownload = useCallback(
-    async (record: BuyerRecord, kind: ArchiveFileKind) => {
+    async (record: BuyerRecord, kind: ArchiveFileKind, fileIndex = 0) => {
       try {
         if (apiConnected) {
           await downloadRecordFileFromApi({
             recordId: record.id,
             kind,
             authToken,
-            fallbackFileName: defaultDownloadFileName(record, kind),
+            fallbackFileName: defaultDownloadFileName(record, kind, fileIndex),
+            fileIndex,
           })
         } else {
           downloadPublishedRecordTextSummary(record, locale)
@@ -279,35 +508,179 @@ export function PortalDashboard() {
 
   const handleTaskStampUpload = useCallback(
     async (recordId: string, file: File) => {
+      await uploadStampedPaper(recordId, file)
+    },
+    [uploadStampedPaper],
+  )
+
+  const handleTaskStampPublish = useCallback(
+    async (recordId: string) => {
+      const record = records.find((r) => r.id === recordId)
+      await publishPaper(recordId)
+      if (record) celebratePublish(recordId, record.vendorName)
+      navigate('/dashboard/archive')
+    },
+    [publishPaper, navigate, records, celebratePublish],
+  )
+
+  const handleAskBuyerEditPermission = useCallback(
+    async (recordId: string) => {
+      setRequestingEditId(recordId)
       try {
-        await uploadStampedPaper(recordId, file.name)
-        navigate('/dashboard/archive')
-      } catch {
-        /* stay on task */
+        await requestBuyerEditPermission(recordId, userName)
+      } catch (err) {
+        window.alert(err instanceof Error ? err.message : 'Request failed')
+      } finally {
+        setRequestingEditId(null)
       }
     },
-    [uploadStampedPaper, navigate],
+    [requestBuyerEditPermission, userName, t],
   )
-  const financeInvoiceList = useMemo(
-    () => records.filter((record) => financeInvoiceNotDone(record)),
+
+  const handleResolveBuyerEditRequest = useCallback(
+    async (recordId: string, decision: 'approve' | 'deny') => {
+      setResolvingEditRequestId(recordId)
+      try {
+        await resolveBuyerEditRequest(recordId, decision, userName)
+      } catch (err) {
+        window.alert(err instanceof Error ? err.message : 'Failed')
+      } finally {
+        setResolvingEditRequestId(null)
+      }
+    },
+    [resolveBuyerEditRequest, userName],
+  )
+  const financeInvoiceFormRecords = useMemo(
+    () =>
+      records.filter(
+        (record) => financeInvoiceNotDone(record) || financeNeedsStampUpload(record),
+      ),
     [records],
   )
 
   const [selectedRecordId, setSelectedRecordId] = useState<string>('')
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false)
+  const [editingBuyerRecordId, setEditingBuyerRecordId] = useState<string | null>(null)
   const [detailRecordId, setDetailRecordId] = useState<string | null>(null)
-  const [selectedVendorCode, setSelectedVendorCode] = useState(vendorOptions[0].code)
-  const [agreementFileName, setAgreementFileName] = useState('')
+  const [taskInvoicePrintRecordId, setTaskInvoicePrintRecordId] = useState<string | null>(null)
+  const [financeEngagedRecordId, setFinanceEngagedRecordId] = useState<string | null>(null)
+  const [requestingEditId, setRequestingEditId] = useState<string | null>(null)
+  const [resolvingEditRequestId, setResolvingEditRequestId] = useState<string | null>(null)
+  const [selectedVendorCode, setSelectedVendorCode] = useState('')
+  const [agreementFiles, setAgreementFiles] = useState<File[]>([])
+  const [removedExistingAgreementSlots, setRemovedExistingAgreementSlots] = useState<Set<number>>(
+    () => new Set(),
+  )
   const [amountEarnedInput, setAmountEarnedInput] = useState('')
+  const [buyerIncomeType, setBuyerIncomeType] = useState('')
+  const [buyerDescription, setBuyerDescription] = useState('')
   const [periodRange, setPeriodRange] = useState<PeriodRangeValue>({ start: '', end: '' })
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false)
-  const [mobileNavOpen, setMobileNavOpen] = useState(false)
+  const [invoiceBankDetails, setInvoiceBankDetails] = useState<InvoiceBankDetails>({
+    ...EMPTY_BANK_DETAILS,
+  })
+  const [invoiceSignerSelection, setInvoiceSignerSelection] = useState<InvoiceSignerSelection>({
+    ...EMPTY_SIGNER_SELECTION,
+  })
+  const [formulaFormFiles, setFormulaFormFiles] = useState<File[]>([])
+  const [removedExistingFormulaSlots, setRemovedExistingFormulaSlots] = useState<Set<number>>(
+    () => new Set(),
+  )
   const [archiveFilterYear, setArchiveFilterYear] = useState('')
   const [archiveFilterDate, setArchiveFilterDate] = useState('')
+  const [listSearchQuery, setListSearchQuery] = useState('')
+  const [listStatusFilter, setListStatusFilter] = useState<RecordListStatusFilter>('all')
+  const [docPreview, setDocPreview] = useState<{
+    recordId: string
+    kind: RecordFileKind
+    fileName: string
+    fileIndex?: number
+  } | null>(null)
+
+  useEffect(() => {
+    if (vendors.length === 0 || selectedVendorCode || editingBuyerRecordId) return
+    setSelectedVendorCode(vendors[0].code)
+  }, [vendors, selectedVendorCode, editingBuyerRecordId])
+
+  const openDocPreview = useCallback(
+    (recordId: string, kind: RecordFileKind, fileName: string, fileIndex = 0) => {
+      setDocPreview({ recordId, kind, fileName, fileIndex })
+    },
+    [],
+  )
+
+  const recordDocLabel = useCallback(
+    (kind: RecordFileKind) => {
+      if (kind === 'agreement') return t('archiveDocAgreement')
+      if (kind === 'formula-form') return t('archiveDocFormulaForm')
+      return t('archiveDocStampedPaper')
+    },
+    [t],
+  )
+
+  const resetListFilters = useCallback(() => {
+    setListSearchQuery('')
+    setListStatusFilter('all')
+  }, [])
+
+  const overviewStatusOptions = useMemo((): RecordListFilterOption[] => {
+    const opts: RecordListFilterOption[] = [
+      { value: 'all', label: t('recordFilterStatusAll') },
+      { value: 'reminder', label: t('recordFilterStatusReminder') },
+      { value: 'normal', label: t('recordFilterStatusNormal') },
+    ]
+    if (userRole === 'buyers') {
+      opts.push(
+        { value: 'in_finance_task', label: t('recordFilterStatusInFinanceTask') },
+        { value: 'edit_request', label: t('recordFilterStatusEditRequest') },
+      )
+    }
+    return opts
+  }, [userRole, t])
+
+  const taskStatusOptions = useMemo(
+    (): RecordListFilterOption[] => [
+      { value: 'all', label: t('recordFilterStatusAll') },
+      { value: 'edit_request', label: t('recordFilterStatusEditRequest') },
+      { value: 'stamp_upload', label: t('recordFilterStatusStampUpload') },
+    ],
+    [t],
+  )
+
+  const activeDashboardFiltered = useMemo(
+    () =>
+      filterRecordList(activeDashboardRecords, {
+        query: listSearchQuery,
+        status: listStatusFilter,
+        role: userRole,
+      }),
+    [activeDashboardRecords, listSearchQuery, listStatusFilter, userRole],
+  )
+
+  const financeTaskFiltered = useMemo(
+    () =>
+      filterRecordList(financeTaskRecords, {
+        query: listSearchQuery,
+        status: listStatusFilter,
+        role: userRole,
+      }),
+    [financeTaskRecords, listSearchQuery, listStatusFilter, userRole],
+  )
+
+  const buyerHistoryFiltered = useMemo(
+    () =>
+      filterRecordList(buyerHistoryRecords, {
+        query: listSearchQuery,
+        status: 'all',
+        role: userRole,
+      }),
+    [buyerHistoryRecords, listSearchQuery, userRole],
+  )
 
   const financeArchiveFiltered = useMemo(() => {
     const ySel = archiveFilterYear === '' ? null : Number(archiveFilterYear)
     return financeArchiveSourceList.filter((r) => {
+      if (!recordMatchesSearch(r, listSearchQuery)) return false
       const ms = buyerHistorySortKey(r)
       if (ySel !== null) {
         if (!Number.isFinite(ms) || new Date(ms).getFullYear() !== ySel) return false
@@ -315,7 +688,11 @@ export function PortalDashboard() {
       if (archiveFilterDate !== '' && !calendarDayMatchesTimestamp(ms, archiveFilterDate)) return false
       return true
     })
-  }, [financeArchiveSourceList, archiveFilterYear, archiveFilterDate])
+  }, [financeArchiveSourceList, archiveFilterYear, archiveFilterDate, listSearchQuery])
+
+  useEffect(() => {
+    resetListFilters()
+  }, [location.pathname, resetListFilters])
 
   useEffect(() => {
     const p = location.pathname.replace(/\/+$/, '') || '/'
@@ -326,11 +703,59 @@ export function PortalDashboard() {
   }, [location.pathname])
 
   const selectedRecord =
-    financeInvoiceList.find((record) => record.id === selectedRecordId) ??
-    financeInvoiceList[0] ??
+    financeInvoiceFormRecords.find((record) => record.id === selectedRecordId) ??
+    financeInvoiceFormRecords[0] ??
     null
+  useEffect(() => {
+    if (!selectedRecord?.invoice) {
+      setInvoiceBankDetails({ ...EMPTY_BANK_DETAILS })
+      setInvoiceSignerSelection({ ...EMPTY_SIGNER_SELECTION })
+      return
+    }
+    const inv = selectedRecord.invoice
+    setInvoiceBankDetails({
+      beneficiaryName: inv.beneficiaryName ?? '',
+      bankName: inv.bankName ?? inv.transferTo ?? '',
+      bankBranch: inv.bankBranch ?? '',
+      accountNo: inv.accountNo ?? '',
+    })
+    setInvoiceSignerSelection(signerSelectionFromInvoice(inv))
+    setFormulaFormFiles([])
+    setRemovedExistingFormulaSlots(new Set())
+  }, [selectedRecord?.id, selectedRecord?.invoice])
+
+  useEffect(() => {
+    if (!isInvoiceModalOpen) {
+      setFormulaFormFiles([])
+      setRemovedExistingFormulaSlots(new Set())
+    }
+  }, [isInvoiceModalOpen])
+
+  const existingFormulaNames = useMemo(
+    () => formulaFormFileNamesFromInvoice(selectedRecord?.invoice),
+    [selectedRecord?.invoice],
+  )
+
+  const visibleExistingFormulaFiles = useMemo(
+    () =>
+      existingFormulaNames
+        .map((name, originalIndex) => ({ originalIndex, name }))
+        .filter(({ originalIndex }) => !removedExistingFormulaSlots.has(originalIndex)),
+    [existingFormulaNames, removedExistingFormulaSlots],
+  )
+
+  const selectedInvoiceDefaults = useMemo(
+    () => invoiceFieldDefaults(selectedRecord?.invoice, userName),
+    [selectedRecord?.invoice, selectedRecord?.id, userName],
+  )
+  const isEditingInvoice = Boolean(
+    selectedRecord && financeNeedsStampUpload(selectedRecord) && selectedRecord.invoice,
+  )
   const detailRecord = records.find((record) => record.id === detailRecordId) ?? null
-  const selectedVendor = vendorOptions.find((option) => option.code === selectedVendorCode)
+  const taskInvoicePrintRecord =
+    taskInvoicePrintRecordId != null
+      ? records.find((record) => record.id === taskInvoicePrintRecordId) ?? null
+      : null
   const pathNormalized = location.pathname.replace(/\/+$/, '') || '/'
   const hideArchiveRevenueChart =
     pathNormalized.endsWith('/task') ||
@@ -346,17 +771,6 @@ export function PortalDashboard() {
       setSelectedRecordId(selectedRecord.id)
     }
   }, [selectedRecord, selectedRecordId])
-
-  useEffect(() => {
-    setMobileNavOpen(false)
-  }, [location.pathname])
-
-  useEffect(() => {
-    if (isCreateModalOpen) {
-      setAmountEarnedInput('')
-      setPeriodRange({ start: '', end: '' })
-    }
-  }, [isCreateModalOpen])
 
   useEffect(() => {
     if (!location.pathname.endsWith('/invoice')) return
@@ -376,21 +790,189 @@ export function PortalDashboard() {
     return () => window.removeEventListener('keydown', onKey)
   }, [isInvoiceModalOpen])
 
+  const financePresenceRecordId = useMemo(() => {
+    if (userRole !== 'finance') return null
+    if (isInvoiceModalOpen && selectedRecord) return selectedRecord.id
+    if (detailRecordId) return detailRecordId
+    if (taskInvoicePrintRecordId) return taskInvoicePrintRecordId
+    if (financeEngagedRecordId) return financeEngagedRecordId
+    return null
+  }, [
+    userRole,
+    isInvoiceModalOpen,
+    selectedRecord,
+    detailRecordId,
+    taskInvoicePrintRecordId,
+    financeEngagedRecordId,
+  ])
+
+  const financeWorkingPresence = useMemo(
+    () => ({
+      userName,
+      avatarPreset: user?.avatarPreset ?? null,
+    }),
+    [userName, user?.avatarPreset],
+  )
+
+  useEffect(() => {
+    if (!financePresenceRecordId) return
+    emitInvoiceEditingStart(financePresenceRecordId, financeWorkingPresence)
+    return () => {
+      emitInvoiceEditingStop(financePresenceRecordId)
+    }
+  }, [
+    financePresenceRecordId,
+    financeWorkingPresence,
+    emitInvoiceEditingStart,
+    emitInvoiceEditingStop,
+  ])
+
+  useEffect(() => {
+    if (!location.pathname.replace(/\/+$/, '').endsWith('/task')) {
+      setFinanceEngagedRecordId(null)
+    }
+  }, [location.pathname])
+
+  const engageFinanceRecord = useCallback((recordId: string) => {
+    setFinanceEngagedRecordId(recordId)
+  }, [])
+
+  const isRecordBlockedByOther = useCallback(
+    (recordId: string) =>
+      userRole === 'finance' &&
+      Boolean(recordWorkingByOther(recordId, currentUserId, invoiceEditing)),
+    [userRole, currentUserId, invoiceEditing],
+  )
+
+  const tryOpenDetail = useCallback(
+    (recordId: string) => {
+      if (isRecordBlockedByOther(recordId)) return
+      setDetailRecordId(recordId)
+    },
+    [isRecordBlockedByOther],
+  )
+
+  useEffect(() => {
+    if (userRole !== 'finance') return
+    if (detailRecordId && isRecordBlockedByOther(detailRecordId)) {
+      setDetailRecordId(null)
+    }
+    if (isInvoiceModalOpen && selectedRecord && isRecordBlockedByOther(selectedRecord.id)) {
+      setIsInvoiceModalOpen(false)
+    }
+    if (taskInvoicePrintRecordId && isRecordBlockedByOther(taskInvoicePrintRecordId)) {
+      setTaskInvoicePrintRecordId(null)
+    }
+  }, [
+    userRole,
+    detailRecordId,
+    isInvoiceModalOpen,
+    selectedRecord,
+    taskInvoicePrintRecordId,
+    isRecordBlockedByOther,
+  ])
+
   if (!user) return null
 
   function goToInvoiceForRecord(recordId: string) {
+    if (isRecordBlockedByOther(recordId)) return
+    const record = records.find((r) => r.id === recordId)
+    if (record && isFinanceTaskPausedForBuyerEdit(record)) return
     setSelectedRecordId(recordId)
     setDetailRecordId(null)
     setIsInvoiceModalOpen(true)
   }
 
+  function closeBuyerFormModal() {
+    setIsCreateModalOpen(false)
+    setEditingBuyerRecordId(null)
+    setSelectedVendorCode(vendors[0]?.code ?? '')
+    setAgreementFiles([])
+    setRemovedExistingAgreementSlots(new Set())
+    setAmountEarnedInput('')
+    setBuyerIncomeType('')
+    setBuyerDescription('')
+    setPeriodRange({ start: '', end: '' })
+  }
+
+  function openBuyerCreateModal() {
+    setEditingBuyerRecordId(null)
+    setSelectedVendorCode(vendors[0]?.code ?? '')
+    setAgreementFiles([])
+    setRemovedExistingAgreementSlots(new Set())
+    setAmountEarnedInput('')
+    setBuyerIncomeType('')
+    setBuyerDescription('')
+    setPeriodRange({ start: '', end: '' })
+    setIsCreateModalOpen(true)
+  }
+
+  function openBuyerEditModal(record: BuyerRecord) {
+    setEditingBuyerRecordId(record.id)
+    setSelectedVendorCode(record.vendorCode)
+    setAmountEarnedInput(formatIdrAmountInputValue(record.amount))
+    setBuyerIncomeType(record.incomeType ?? '')
+    setBuyerDescription(record.description ?? '')
+    setPeriodRange({
+      start: periodIsoToDateInput(record.periodStart),
+      end: periodIsoToDateInput(record.periodEnd),
+    })
+    setAgreementFiles([])
+    setRemovedExistingAgreementSlots(new Set())
+    setDetailRecordId(null)
+    setIsCreateModalOpen(true)
+  }
+
+  const editingBuyerRecord = editingBuyerRecordId
+    ? records.find((r) => r.id === editingBuyerRecordId) ?? null
+    : null
+
+  const existingAgreementNames = useMemo(
+    () => agreementFileNamesFromRecord(editingBuyerRecord),
+    [editingBuyerRecord],
+  )
+
+  const visibleExistingAgreementFiles = useMemo(
+    () =>
+      existingAgreementNames
+        .map((name, originalIndex) => ({ originalIndex, name }))
+        .filter(({ originalIndex }) => !removedExistingAgreementSlots.has(originalIndex)),
+    [existingAgreementNames, removedExistingAgreementSlots],
+  )
+
+  function handleRemoveExistingAgreementSlot(originalIndex: number) {
+    setRemovedExistingAgreementSlots((prev) => new Set(prev).add(originalIndex))
+  }
+
+  function handleRemoveExistingFormulaSlot(originalIndex: number) {
+    setRemovedExistingFormulaSlots((prev) => new Set(prev).add(originalIndex))
+  }
+
+  const buyerVendors = useMemo(() => {
+    if (!editingBuyerRecord) return vendors
+    if (vendors.some((v) => v.code === editingBuyerRecord.vendorCode)) return vendors
+    return [
+      { code: editingBuyerRecord.vendorCode, name: editingBuyerRecord.vendorName },
+      ...vendors,
+    ]
+  }, [vendors, editingBuyerRecord])
+
+  const buyerVendorDisplayName =
+    getVendorNameByCode(selectedVendorCode) ||
+    editingBuyerRecord?.vendorName ||
+    ''
+
   function submitBuyerForm(event: FormEvent) {
     event.preventDefault()
     const form = event.currentTarget as HTMLFormElement
     const formData = new FormData(form)
-    const vendorCode = String(formData.get('vendorCode') ?? selectedVendorCode)
+    const vendorCode = String(formData.get('vendorCode') ?? selectedVendorCode).trim()
+    if (!vendorCode) {
+      window.alert(t('vendorsEmpty'))
+      return
+    }
     const vendorName =
-      vendorOptions.find((option) => option.code === vendorCode)?.name ?? selectedVendor?.name ?? ''
+      getVendorNameByCode(vendorCode) || editingBuyerRecord?.vendorName || ''
     const amountParsed = parseIdrAmountInput(amountEarnedInput)
     if (!Number.isFinite(amountParsed) || amountParsed <= 0) {
       window.alert(t('amountEarnedInvalid'))
@@ -404,23 +986,93 @@ export function PortalDashboard() {
       window.alert(t('periodRangeOrderInvalid'))
       return
     }
-    createBuyerData({
+    const today = todayIsoDateLocal()
+    const originalStart = editingBuyerRecord
+      ? periodIsoToDateInput(editingBuyerRecord.periodStart)
+      : ''
+    const originalEnd = editingBuyerRecord
+      ? periodIsoToDateInput(editingBuyerRecord.periodEnd)
+      : ''
+    const periodChanged =
+      periodRange.start !== originalStart || periodRange.end !== originalEnd
+    if (
+      periodChanged &&
+      (periodRange.start < today || periodRange.end < today)
+    ) {
+      window.alert(t('periodRangePastInvalid'))
+      return
+    }
+    const keepSlots = existingAgreementNames
+      .map((_, index) => index)
+      .filter((index) => !removedExistingAgreementSlots.has(index))
+    const totalAgreementDocs = keepSlots.length + agreementFiles.length
+    const agreementFilesChanged =
+      agreementFiles.length > 0 || removedExistingAgreementSlots.size > 0
+
+    const savedAgreementNames = agreementFileNamesForSave(
+      existingAgreementNames,
+      keepSlots,
+      agreementFiles.map((f) => f.name),
+    )
+
+    const payload = {
       vendorCode,
       vendorName,
-      incomeType: String(formData.get('incomeType') ?? ''),
-      agreementFileName: agreementFileName || 'agreement-file',
+      incomeType: buyerIncomeType.trim(),
+      agreementFileName: savedAgreementNames[0] ?? '',
+      agreementFileNames: savedAgreementNames,
       amount: amountParsed,
       periodStart: periodRange.start,
       periodEnd: periodRange.end,
-      description: String(formData.get('description') ?? ''),
-    }, userName)
-    form.reset()
-    setSelectedVendorCode(vendorOptions[0].code)
-    setAgreementFileName('')
-    setAmountEarnedInput('')
-    setPeriodRange({ start: '', end: '' })
-    setIsCreateModalOpen(false)
-    navigate('/dashboard')
+      description: buyerDescription.trim(),
+    }
+
+    if (editingBuyerRecordId) {
+      if (agreementFilesChanged) {
+        if (totalAgreementDocs === 0) {
+          window.alert(t('agreementFileRequired'))
+          return
+        }
+        if (totalAgreementDocs > AGREEMENT_MAX) {
+          window.alert(t('agreementFileMax'))
+          return
+        }
+      } else if (totalAgreementDocs === 0) {
+        window.alert(t('agreementFileRequired'))
+        return
+      }
+      void updateBuyerData(
+        editingBuyerRecordId,
+        payload,
+        agreementFilesChanged ? { newFiles: agreementFiles, keepSlots } : null,
+      )
+        .then(() => {
+          form.reset()
+          closeBuyerFormModal()
+        })
+        .catch((err) => {
+          window.alert(err instanceof Error ? err.message : t('agreementFileMax'))
+        })
+      return
+    }
+
+    if (agreementFiles.length === 0) {
+      window.alert(t('agreementFileRequired'))
+      return
+    }
+    if (agreementFiles.length > AGREEMENT_MAX) {
+      window.alert(t('agreementFileMax'))
+      return
+    }
+    void createBuyerData(payload, userName, 'buyers', { newFiles: agreementFiles })
+      .then(() => {
+        form.reset()
+        closeBuyerFormModal()
+        navigate('/dashboard')
+      })
+      .catch((err) => {
+        window.alert(err instanceof Error ? err.message : t('agreementFileRequired'))
+      })
   }
 
   function submitInvoice(event: FormEvent) {
@@ -428,12 +1080,52 @@ export function PortalDashboard() {
     if (!selectedRecord) return
     const form = event.currentTarget as HTMLFormElement
     const formData = new FormData(form)
-    const formulaFormFile = formData.get('formulaFormFile')
-    const formulaFormFileName =
-      formulaFormFile instanceof File ? formulaFormFile.name : ''
-    if (!formulaFormFileName.toLowerCase().endsWith('.pdf')) return
+
+    const keepSlots = existingFormulaNames
+      .map((_, index) => index)
+      .filter((index) => !removedExistingFormulaSlots.has(index))
+    const totalDocs = keepSlots.length + formulaFormFiles.length
+    const filesChanged =
+      formulaFormFiles.length > 0 || removedExistingFormulaSlots.size > 0
+
+    if (!isEditingInvoice || filesChanged) {
+      if (totalDocs === 0) {
+        window.alert(t('invFormulaPdfRequired'))
+        return
+      }
+      if (totalDocs > FORMULA_FORM_MAX) {
+        window.alert(t('invFormulaPdfMax'))
+        return
+      }
+      for (const file of formulaFormFiles) {
+        if (!file.name.toLowerCase().endsWith('.pdf')) {
+          window.alert(t('invFormulaPdfRequired'))
+          return
+        }
+      }
+    }
+
+    const bankName = String(formData.get('bankName') ?? formData.get('transferTo') ?? '').trim()
+    const bankBranch = String(formData.get('bankBranch') ?? '').trim()
+    const accountNo = String(formData.get('accountNo') ?? '').trim()
+    const beneficiaryName = String(formData.get('beneficiaryName') ?? '').trim()
+    if (!bankName || !bankBranch || !accountNo || !beneficiaryName) {
+      window.alert(t('invBankNoneSelected'))
+      return
+    }
+    const signerName = String(formData.get('signer') ?? '').trim()
+    const signerTitle = String(formData.get('signerTitle') ?? '').trim()
+    if (!signerName || !signerTitle) {
+      window.alert(t('invSignerNoneSelected'))
+      return
+    }
+    const savedFormulaNames = formulaFormFileNamesForSave(
+      existingFormulaNames,
+      keepSlots,
+      formulaFormFiles.map((f) => f.name),
+    )
     const invoice: InvoiceData = {
-      number: String(formData.get('number') ?? ''),
+      number: previewInvoiceNumberForRecord(selectedRecord, records),
       party: selectedRecord.vendorName,
       attn: String(formData.get('attn') ?? userName),
       paymentMethod: (String(formData.get('paymentMethod') ?? 'Transfer') === 'Reduce the bill'
@@ -446,20 +1138,31 @@ export function PortalDashboard() {
         ? 'Tax art 4(2)'
         : 'Tax art 23') as InvoiceData['taxType'],
       taxPercent: parseNumberInput(String(formData.get('taxPercent') ?? 2)),
-      transferTo: String(formData.get('transferTo') ?? 'Bank Mayapada'),
-      bankBranch: String(formData.get('bankBranch') ?? ''),
-      accountNo: String(formData.get('accountNo') ?? ''),
-      beneficiaryName: String(formData.get('beneficiaryName') ?? ''),
-      formulaFormFileName,
-      signer: String(formData.get('signer') ?? signerOptions[0]),
+      bankName,
+      transferTo: bankName,
+      bankBranch,
+      accountNo,
+      beneficiaryName,
+      formulaFormFileName: savedFormulaNames[0] ?? '',
+      formulaFormFileNames: savedFormulaNames,
+      signer: signerName,
+      signerTitle,
+      pphEmail: String(formData.get('pphEmail') ?? INVOICE_COMPANY.pphNoteEmail).trim(),
     }
-    createInvoice(
-      selectedRecord.id,
-      invoice,
-      userName,
-    )
+    const editing = financeNeedsStampUpload(selectedRecord)
+    const formulaUpload =
+      !isEditingInvoice || filesChanged
+        ? { newFiles: formulaFormFiles, keepSlots }
+        : undefined
+    void createInvoice(selectedRecord.id, invoice, userName, formulaUpload)
+      .then(() => {
+        setIsInvoiceModalOpen(false)
+        navigate(editing ? '/dashboard/task' : '/dashboard')
+      })
+      .catch(() => {
+        /* keep modal open */
+      })
     form.reset()
-    setIsInvoiceModalOpen(false)
   }
 
   function preventEnterSubmit(event: ReactKeyboardEvent<HTMLFormElement>) {
@@ -471,153 +1174,104 @@ export function PortalDashboard() {
     }
   }
 
-  const navItems =
+  const userInitial = (userName.trim()[0] ?? 'U').toUpperCase()
+  const financeTaskCount = financeTaskRecords.length
+
+  const portalNavItems =
     userRole === 'buyers'
       ? [
-          { to: '/dashboard', labelKey: 'navOverview' as const, end: true },
-          { to: '/dashboard/history', labelKey: 'navHistory' as const },
+          { to: '/dashboard', labelKey: 'navOverview' as const, end: true, icon: 'overview' as const },
+          { to: '/dashboard/history', labelKey: 'navHistory' as const, icon: 'history' as const },
         ]
       : [
-          { to: '/dashboard', labelKey: 'navOverview' as const, end: true },
-          { to: '/dashboard/task', labelKey: 'navTask' as const },
-          { to: '/dashboard/archive', labelKey: 'navArchive' as const },
+          { to: '/dashboard', labelKey: 'navOverview' as const, end: true, icon: 'overview' as const },
+          {
+            to: '/dashboard/task',
+            labelKey: 'navTask' as const,
+            icon: 'task' as const,
+            badgeCount: financeTaskCount,
+          },
+          { to: '/dashboard/archive', labelKey: 'navArchive' as const, icon: 'archive' as const },
         ]
+  const portalRoleLabelKey = userRole === 'buyers' ? ('roleBuyers' as const) : ('roleFinance' as const)
+
+  const handleNotificationRecordSelect = useCallback(
+    (recordId: string, kind?: PortalNotificationItem['kind']) => {
+      if (userRole === 'finance' && isRecordBlockedByOther(recordId)) return
+      const record = records.find((r) => r.id === recordId)
+      if (
+        userRole === 'finance' &&
+        (kind === 'stamp_upload' ||
+          kind === 'buyer_edit_request' ||
+          record?.status === 'document_generated')
+      ) {
+        setDetailRecordId(null)
+        navigate('/dashboard/task')
+        return
+      }
+      const path = location.pathname.replace(/\/+$/, '') || '/'
+      if (path !== '/dashboard') {
+        navigate('/dashboard')
+      }
+      tryOpenDetail(recordId)
+    },
+    [location.pathname, navigate, records, userRole, isRecordBlockedByOther, tryOpenDetail],
+  )
 
   return (
-    <div className="min-h-screen bg-slate-100 text-slate-800">
-      <header className="sticky top-0 z-40 border-b border-slate-200 bg-white/95 shadow-sm backdrop-blur">
-        <div className="mx-auto max-w-7xl px-4 sm:px-6">
-          <div className="flex items-center gap-3 py-3 md:gap-4 md:py-3.5">
-            <div className="min-w-0 flex-1 md:max-w-[13rem] lg:max-w-[16rem] lg:flex-none">
-              <p className="text-[10px] font-semibold uppercase tracking-widest text-violet-600 sm:text-xs">
-                {t('dashboardLabel')}
-              </p>
-              <h1 className="truncate text-base font-semibold text-slate-900 sm:text-lg">{userDepartment}</h1>
-              <p className="truncate text-xs text-slate-500 sm:text-sm">
-                {userName} · {userRole === 'buyers' ? t('roleBuyers') : t('roleFinance')}
-              </p>
-            </div>
-
-            <nav
-              className="hidden min-w-0 flex-1 items-center justify-center md:flex"
-              aria-label={t('menuNavigation')}
-            >
-              <div className="flex max-w-full flex-wrap items-center justify-center gap-1 lg:gap-2">
-                {navItems.map((item) => (
-                  <NavLink
-                    key={item.to}
-                    to={item.to}
-                    end={item.end}
-                    className={({ isActive }) => navLinkClass(isActive, 'row')}
-                  >
-                    {t(item.labelKey)}
-                  </NavLink>
-                ))}
-              </div>
-            </nav>
-
-            <div className="flex shrink-0 items-center gap-2">
-              <LanguageToggle className="rounded-lg border border-slate-300 bg-white px-2 py-1.5 text-xs font-semibold text-slate-700 shadow-sm outline-none transition hover:border-violet-400 focus:border-violet-400 focus:ring-2 focus:ring-violet-200 sm:px-2.5" />
-              <button
-                type="button"
-                onClick={logout}
-                className="hidden rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm font-medium text-slate-700 transition hover:border-violet-300 hover:text-violet-700 md:inline-flex"
-              >
-                {t('logout')}
-              </button>
-              <button
-                type="button"
-                className="inline-flex h-10 w-10 items-center justify-center rounded-lg border border-slate-300 bg-slate-50 text-slate-700 transition hover:border-violet-300 hover:bg-violet-50 hover:text-violet-700 md:hidden"
-                aria-expanded={mobileNavOpen}
-                aria-controls="dashboard-mobile-nav"
-                onClick={() => setMobileNavOpen((open) => !open)}
-                aria-label={mobileNavOpen ? t('closeMenu') : t('openMenu')}
-              >
-                {mobileNavOpen ? (
-                  <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M6 6l12 12M18 6L6 18" strokeLinecap="round" />
-                  </svg>
-                ) : (
-                  <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                    <path d="M4 7h16M4 12h16M4 17h16" strokeLinecap="round" />
-                  </svg>
-                )}
-              </button>
-            </div>
-          </div>
-
-          <div
-            id="dashboard-mobile-nav"
-            className={`border-t border-slate-100 md:hidden ${mobileNavOpen ? 'block' : 'hidden'}`}
-          >
-            <nav className="flex flex-col gap-1 px-0 py-3" aria-label={t('menuNavigation')}>
-              {navItems.map((item) => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  end={item.end}
-                  onClick={() => setMobileNavOpen(false)}
-                  className={({ isActive }) => navLinkClass(isActive, 'stack')}
-                >
-                  {t(item.labelKey)}
-                </NavLink>
-              ))}
-            </nav>
-            <div className="border-t border-slate-100 px-0 pb-3">
-              <button
-                type="button"
-                className="mt-3 w-full rounded-lg border border-slate-300 bg-slate-50 px-4 py-2.5 text-sm font-medium text-slate-700 transition hover:border-violet-300 hover:text-violet-700"
-                onClick={() => {
-                  setMobileNavOpen(false)
-                  logout()
-                }}
-              >
-                {t('logout')}
-              </button>
-            </div>
-          </div>
-        </div>
-      </header>
-
-      <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6">
+    <>
+      <PortalLayout
+        userName={userName}
+        userDepartment={userDepartment}
+        userInitial={userInitial}
+        roleLabelKey={portalRoleLabelKey}
+        navItems={portalNavItems}
+        t={t}
+        onNotificationRecordSelect={handleNotificationRecordSelect}
+      >
           {!hideDashboardSummary ? (
-            <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-                <h2 className="text-base font-semibold text-slate-900">{t('summaryTitle')}</h2>
-                <div className="rounded-full bg-slate-100 px-3 py-1 text-xs text-slate-600">
-                  {apiConnected ? t('apiConnected') : t('apiOffline')}
-                </div>
-                {userRole === 'buyers' ? (
-                  <button
-                    type="button"
-                    onClick={() => setIsCreateModalOpen(true)}
-                    className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-violet-500"
-                  >
-                    + {t('addData')}
-                  </button>
-                ) : null}
-              </div>
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {summaryCards.map((card) => (
-                  <article key={card.labelKey} className="rounded-xl border border-slate-200 bg-slate-50 p-4">
-                    <p className="mb-1 font-mono text-2xl font-bold text-slate-900">{card.value}</p>
-                    <p className="text-sm text-slate-600">{t(card.labelKey)}</p>
-                  </article>
-                ))}
+            <section className={`portal-card p-6`}>
+              <h2 className="mb-4 text-base font-semibold portal-heading">{t('summaryTitle')}</h2>
+              <div className="grid gap-3 sm:grid-cols-2">
+                {summaryCards.map((card) => {
+                  const iconKind = summaryIconKind(card.labelKey)
+                  return (
+                    <article
+                      key={card.labelKey}
+                      className={`flex items-center gap-4 portal-card-sm p-4`}
+                    >
+                      <div
+                        className={`portal-stat-icon ${
+                          iconKind === 'reminder'
+                            ? 'portal-stat-icon-reminder'
+                            : 'portal-stat-icon-records'
+                        }`}
+                      >
+                        <PortalSummaryIcon kind={iconKind} role={userRole} />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="portal-heading font-mono text-2xl font-bold leading-none">
+                          {card.value}
+                        </p>
+                        <p className="portal-body mt-1 text-sm leading-snug">{t(card.labelKey)}</p>
+                      </div>
+                    </article>
+                  )
+                })}
               </div>
             </section>
           ) : null}
 
           {!hideArchiveRevenueChart ? (
-            <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <section className={`portal-card p-6`}>
               <div className="mb-4">
-                <h2 className="text-base font-semibold text-slate-900">{t('chartArchiveRevenueTitle')}</h2>
-                <p className="mt-1 text-xs text-slate-500 sm:text-sm">{t('chartArchiveRevenueSubtitle')}</p>
-                <p className="mt-0.5 text-[10px] font-medium uppercase tracking-wide text-violet-600 sm:text-xs">
+                <h2 className="text-base font-semibold portal-heading">{t('chartArchiveRevenueTitle')}</h2>
+                <p className="portal-muted mt-1 text-xs sm:text-sm">{t('chartArchiveRevenueSubtitle')}</p>
+                <p className="portal-accent mt-0.5 text-[10px] font-medium uppercase tracking-wide sm:text-xs">
                   {t('chartCumulativeLabel')}
                 </p>
               </div>
-              <RevenueLineChart records={records} t={t} dateLocale={dateLocale} />
+              <RevenueLineChart records={records} t={t} dateLocale={dateLocale} role={userRole} />
             </section>
           ) : null}
 
@@ -625,51 +1279,152 @@ export function PortalDashboard() {
             <Route
               index
               element={
-                <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                  <h2 className="mb-4 text-base font-semibold text-slate-900">
+                <section className={`portal-card p-6`}>
+                  <h2 className="mb-4 text-base font-semibold portal-heading">
                     {userRole === 'buyers' ? t('listBuyersLatest') : t('listBuyersFinance')}
                   </h2>
-                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+                  <RecordListFilterBar
+                    searchQuery={listSearchQuery}
+                    onSearchChange={setListSearchQuery}
+                    searchLabel={t('recordFilterSearchLabel')}
+                    searchPlaceholder={t('recordFilterSearchPlaceholder')}
+                    statusFilter={listStatusFilter}
+                    onStatusFilterChange={setListStatusFilter}
+                    statusLabel={t('recordFilterStatusLabel')}
+                    statusOptions={overviewStatusOptions}
+                    resetLabel={t('recordFilterReset')}
+                    onReset={resetListFilters}
+                    showReset={listSearchQuery.trim() !== '' || listStatusFilter !== 'all'}
+                  />
+                  <div className="portal-table-wrap">
                     {activeDashboardRecords.length === 0 ? (
-                      <p className="col-span-full rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-500">
+                      <p className={`portal-empty m-4`}>
                         {userRole === 'buyers' ? t('buyerDashboardListEmpty') : t('financeDashboardListEmpty')}
                       </p>
-                    ) : null}
-                    {activeDashboardRecords.map((record) => {
-                      const reminder = daysUntil(record.periodEnd)
-                      return (
-                        <button
-                          key={record.id}
-                          type="button"
-                          onClick={() => setDetailRecordId(record.id)}
-                          className="rounded-xl border border-slate-200 bg-slate-50 p-4 text-left shadow-sm transition hover:border-violet-300 hover:bg-white"
+                    ) : activeDashboardFiltered.length === 0 ? (
+                      <p className="portal-chart-warn m-4 p-6 text-sm text-amber-950/90 dark:text-amber-200">
+                        {t('recordFilterNoResults')}
+                      </p>
+                    ) : (
+                      <div className="portal-table">
+                        <div
+                          className={`portal-table-head portal-table-row ${userRole === 'buyers' ? 'portal-table-row--overview-buyer' : 'portal-table-row--overview-finance'}`}
                         >
-                          <p className="font-semibold text-slate-900">{record.vendorName}</p>
-                          <p className="text-xs text-slate-500">{record.vendorCode}</p>
-                          <div className="mt-3 space-y-1 text-xs text-slate-600">
-                            <p>
-                              <span className="font-medium">{t('periodEnd')}</span>{' '}
-                              {formatDate(record.periodEnd, dateLocale)}
-                            </p>
-                            <p>
-                              <span className="font-medium">{t('statusLabel')}</span>{' '}
-                              <span className="capitalize">{record.status.replaceAll('_', ' ')}</span>
-                            </p>
-                          </div>
-                          <div className="mt-3 flex items-center gap-2">
-                            {reminder <= 5 ? (
-                              <span className="rounded-full bg-amber-100 px-2 py-1 text-xs text-amber-700">
-                                {t('emailReminder')}
+                          <div className="portal-table-th">{t('vendorName')}</div>
+                          <div className="portal-table-th">{t('periodEndField')}</div>
+                          <div className="portal-table-th">{t('statusLabel')}</div>
+                          {userRole === 'buyers' ? (
+                            <div className="portal-table-th">{t('recordTableColDocuments')}</div>
+                          ) : null}
+                        </div>
+                        <div className="portal-table-body">
+                          {activeDashboardFiltered.map((record, index) => {
+                            const reminder = daysUntilPeriodEnd(record.periodEnd)
+                            const zebraClass = index % 2 === 0 ? 'portal-list-zebra-a' : 'portal-list-zebra-b'
+                            const inFinanceTask =
+                              userRole === 'buyers' && isBuyerRecordInFinanceTask(record)
+                            const editPending = hasPendingBuyerEditRequest(record)
+                            const editApproved = hasApprovedBuyerEditRequest(record)
+                            const editDenied = isBuyerEditRequestDenied(record)
+                            const statusBadge = inFinanceTask ? (
+                              <span className="inline-flex flex-wrap items-center gap-1">
+                                <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-violet-700 dark:bg-violet-600/20 dark:text-violet-200">
+                                  {t('buyerInFinanceTaskBadge')}
+                                </span>
+                                {editPending ? (
+                                  <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-800 dark:bg-amber-600/20 dark:text-amber-200">
+                                    {t('buyerEditRequestPending')}
+                                  </span>
+                                ) : null}
+                                {editApproved ? (
+                                  <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold text-emerald-800 dark:bg-emerald-600/20 dark:text-emerald-200">
+                                    {t('buyerEditApprovedBadge')}
+                                  </span>
+                                ) : null}
+                                {editDenied ? (
+                                  <span className="rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold text-slate-700 dark:bg-slate-700/50 dark:text-slate-200">
+                                    {t('buyerEditRequestDenied')}
+                                  </span>
+                                ) : null}
                               </span>
+                            ) : reminder <= 5 ? (
+                              <span className="portal-badge-reminder">{t('emailReminder')}</span>
                             ) : (
-                              <span className="rounded-full bg-slate-200 px-2 py-1 text-xs text-slate-600">
-                                {t('normal')}
-                              </span>
-                            )}
-                          </div>
-                        </button>
-                      )
-                    })}
+                              <span className="portal-badge-normal">{t('normal')}</span>
+                            )
+                            const remoteWorking =
+                              userRole === 'finance'
+                                ? recordWorkingByOther(record.id, currentUserId, invoiceEditing)
+                                : null
+                            const blocked = Boolean(remoteWorking)
+                            const recordDocuments =
+                              userRole === 'buyers' ? listRecordDocuments(record) : []
+                            const rowClass = `${zebraClass} ${userRole === 'buyers' ? 'portal-table-row--overview-buyer' : 'portal-table-row--overview-finance'} ${blocked ? 'z-20 opacity-60' : 'portal-table-row--clickable'}`
+                            return (
+                              <div
+                                key={record.id}
+                                role="button"
+                                tabIndex={blocked ? -1 : 0}
+                                aria-disabled={blocked}
+                                className={`portal-table-row relative ${rowClass}`}
+                                onClick={() => {
+                                  if (!blocked) tryOpenDetail(record.id)
+                                }}
+                                onKeyDown={(e) => {
+                                  if (blocked) return
+                                  if (e.key === 'Enter' || e.key === ' ') {
+                                    e.preventDefault()
+                                    tryOpenDetail(record.id)
+                                  }
+                                }}
+                              >
+                                <div className="portal-table-td">
+                                  <p className="truncate font-semibold portal-heading">{record.vendorName}</p>
+                                  <p className="portal-muted truncate text-xs">{record.vendorCode}</p>
+                                </div>
+                                <div className="portal-table-td text-sm portal-body">
+                                  {formatDate(record.periodEnd, dateLocale)}
+                                </div>
+                                <div className="portal-table-td">{statusBadge}</div>
+                                {userRole === 'buyers' ? (
+                                  <div
+                                    className="portal-table-td"
+                                    onClick={(e) => e.stopPropagation()}
+                                    onKeyDown={(e) => e.stopPropagation()}
+                                  >
+                                    {recordDocuments.length > 0 ? (
+                                      <div className="flex flex-wrap gap-1">
+                                        {recordDocuments.map((doc) => (
+                                          <button
+                                            key={`${doc.kind}-${doc.fileIndex ?? 0}-${doc.fileName}`}
+                                            type="button"
+                                            disabled={blocked}
+                                            onClick={() => openDocPreview(record.id, doc.kind, doc.fileName, doc.fileIndex ?? 0)}
+                                            className="portal-btn-secondary px-2 py-1 text-[10px] font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                                          >
+                                            {recordDocLabel(doc.kind)}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <span className="text-xs portal-muted">—</span>
+                                    )}
+                                  </div>
+                                ) : null}
+                                {remoteWorking ? (
+                                  <RecordWorkingOverlay
+                                    processingLabel={t('recordProcessing')}
+                                    userName={remoteWorking.userName}
+                                    avatarPreset={remoteWorking.avatarPreset}
+                                    title={t('recordWorkingBy').replace('{name}', remoteWorking.userName)}
+                                  />
+                                ) : null}
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 </section>
               }
@@ -682,28 +1437,98 @@ export function PortalDashboard() {
               path="task"
               element={
                 userRole === 'finance' ? (
-                  <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                    <h2 className="mb-4 text-base font-semibold text-slate-900">{t('taskPageTitle')}</h2>
-                    <p className="mb-4 text-sm text-slate-600">
+                  <section className={`portal-card p-6`}>
+                    <h2 className="mb-4 text-base font-semibold portal-heading">{t('taskPageTitle')}</h2>
+                    <p className="portal-body mb-4 text-sm">
                       {t('taskPageSubtitle')}
                     </p>
-                    <div className="space-y-3">
-                      {records.filter((record) => record.status === 'document_generated').length === 0 ? (
-                        <p className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-500">
+                    <RecordListFilterBar
+                      searchQuery={listSearchQuery}
+                      onSearchChange={setListSearchQuery}
+                      searchLabel={t('recordFilterSearchLabel')}
+                      searchPlaceholder={t('recordFilterSearchPlaceholder')}
+                      statusFilter={listStatusFilter}
+                      onStatusFilterChange={setListStatusFilter}
+                      statusLabel={t('recordFilterStatusLabel')}
+                      statusOptions={taskStatusOptions}
+                      resetLabel={t('recordFilterReset')}
+                      onReset={resetListFilters}
+                      showReset={listSearchQuery.trim() !== '' || listStatusFilter !== 'all'}
+                    />
+                    <div className="portal-table-wrap">
+                      {financeTaskRecords.length === 0 ? (
+                        <p className={`portal-empty m-4`}>
                           {t('taskPageEmpty')}
                         </p>
+                      ) : financeTaskFiltered.length === 0 ? (
+                        <p className="portal-chart-warn m-4 p-6 text-sm text-amber-950/90 dark:text-amber-200">
+                          {t('recordFilterNoResults')}
+                        </p>
                       ) : (
-                        records
-                          .filter((record) => record.status === 'document_generated')
-                          .map((record) => (
-                            <FinanceTaskRow
-                              key={record.id}
-                              record={record}
-                              onPickFile={handleTaskStampUpload}
-                              uploadLabel={t('uploadStampedPaper')}
-                              financeByText={`${t('financeDownloadBy')} ${record.generatedBy ?? '-'}`}
-                            />
-                          ))
+                        <div className="portal-table">
+                          <div className={`portal-table-head portal-table-row portal-table-row--task`}>
+                            <div className="portal-table-th">{t('vendorName')}</div>
+                            <div className="portal-table-th">{t('recordTableColInvoice')}</div>
+                            <div className="portal-table-th">{t('financeDownloadBy')}</div>
+                            <div className="portal-table-th">{t('recordTableColActions')}</div>
+                          </div>
+                          <div className="portal-table-body">
+                            {financeTaskFiltered.map((record, index) => {
+                              const remoteWorking = recordWorkingByOther(
+                                record.id,
+                                currentUserId,
+                                invoiceEditing,
+                              )
+                              return (
+                                <FinanceTaskRow
+                                  key={record.id}
+                                  record={record}
+                                  zebraClass={index % 2 === 0 ? 'portal-list-zebra-a' : 'portal-list-zebra-b'}
+                                  blocked={Boolean(remoteWorking)}
+                                  remoteWorking={remoteWorking}
+                                  processingLabel={t('recordProcessing')}
+                                  overlayTitle={
+                                    remoteWorking
+                                      ? t('recordWorkingBy').replace('{name}', remoteWorking.userName)
+                                      : undefined
+                                  }
+                                  onEngage={engageFinanceRecord}
+                                  onPickFile={handleTaskStampUpload}
+                                  onPublishStamp={handleTaskStampPublish}
+                                  onEdit={goToInvoiceForRecord}
+                                  onDownloadInvoice={() => {
+                                    engageFinanceRecord(record.id)
+                                    setTaskInvoicePrintRecordId(record.id)
+                                  }}
+                                  editLabel={t('financeEditInvoice')}
+                                  uploadLabel={t('uploadStampedPaper')}
+                                  stampUploadLabels={{
+                                    close: t('close'),
+                                    confirmUpload: t('taskStampConfirmUpload'),
+                                    viewStamped: t('taskStampViewUploaded'),
+                                    publish: t('taskStampPublish'),
+                                    previewUnavailable: t('taskStampPreviewUnavailable'),
+                                    uploading: t('loadingData'),
+                                    publishing: t('taskStampPublishing'),
+                                  }}
+                                  downloadInvoiceLabel={t('taskDownloadInvoice')}
+                                  hasInvoice={Boolean(record.invoice)}
+                                  financeByText={record.generatedBy ?? '-'}
+                                  editRequestTitle={t('financeBuyerEditRequestTitle')}
+                                  editRequestHint={t('financeBuyerEditRequestHint')}
+                                  approveEditLabel={t('financeBuyerEditApprove')}
+                                  denyEditLabel={t('financeBuyerEditDeny')}
+                                  onApproveEditRequest={(id) => handleResolveBuyerEditRequest(id, 'approve')}
+                                  onDenyEditRequest={(id) => handleResolveBuyerEditRequest(id, 'deny')}
+                                  resolvingEditRequest={resolvingEditRequestId === record.id}
+                                  buyerEditingLocked={isFinanceTaskPausedForBuyerEdit(record)}
+                                  buyerEditingTitle={t('financeBuyerEditApprovedTitle')}
+                                  buyerEditingHint={t('financeBuyerEditApprovedHint')}
+                                />
+                              )
+                            })}
+                          </div>
+                        </div>
                       )}
                     </div>
                   </section>
@@ -717,16 +1542,27 @@ export function PortalDashboard() {
               path="archive"
               element={
                 userRole === 'finance' ? (
-                  <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                    <h2 className="mb-4 text-base font-semibold text-slate-900">{t('archivePageTitle')}</h2>
-                    <p className="mb-4 text-sm text-slate-600">{t('archivePageSubtitle')}</p>
-                    <div className="mb-5 flex flex-col gap-3 rounded-xl border border-slate-200 bg-slate-50/80 p-4 sm:flex-row sm:flex-wrap sm:items-end">
-                      <label className="flex min-w-[10rem] flex-col gap-1 text-xs font-medium text-slate-700">
+                  <section className={`portal-card p-6`}>
+                    <h2 className="mb-4 text-base font-semibold portal-heading">{t('archivePageTitle')}</h2>
+                    <p className="portal-body mb-4 text-sm">{t('archivePageSubtitle')}</p>
+                    <div className="portal-filter-panel mb-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+                      <label className="portal-subheading flex min-w-0 flex-1 flex-col gap-1 text-xs font-medium sm:min-w-[12rem]">
+                        {t('recordFilterSearchLabel')}
+                        <input
+                          type="search"
+                          value={listSearchQuery}
+                          onChange={(e) => setListSearchQuery(e.target.value)}
+                          placeholder={t('recordFilterSearchPlaceholder')}
+                          className="portal-input"
+                          autoComplete="off"
+                        />
+                      </label>
+                      <label className="portal-subheading flex min-w-[10rem] flex-col gap-1 text-xs font-medium">
                         {t('archiveFilterYearLabel')}
                         <select
                           value={archiveFilterYear}
                           onChange={(e) => setArchiveFilterYear(e.target.value)}
-                          className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900"
+                          className="portal-select"
                         >
                           <option value="">{t('archiveFilterYearAll')}</option>
                           {financeArchiveYearOptions.map((y) => (
@@ -736,117 +1572,206 @@ export function PortalDashboard() {
                           ))}
                         </select>
                       </label>
-                      <label className="flex min-w-[10rem] flex-col gap-1 text-xs font-medium text-slate-700">
+                      <label className="portal-subheading flex min-w-[10rem] flex-col gap-1 text-xs font-medium">
                         {t('archiveFilterDateLabel')}
                         <input
                           type="date"
                           value={archiveFilterDate}
                           onChange={(e) => setArchiveFilterDate(e.target.value)}
-                          className="rounded-lg border border-slate-300 bg-white px-2 py-2 text-sm text-slate-900"
+                          className="portal-select"
                         />
                       </label>
-                      {(archiveFilterYear !== '' || archiveFilterDate !== '') && (
+                      {(archiveFilterYear !== '' || archiveFilterDate !== '' || listSearchQuery.trim() !== '') && (
                         <button
                           type="button"
                           onClick={() => {
                             setArchiveFilterYear('')
                             setArchiveFilterDate('')
+                            setListSearchQuery('')
                           }}
-                          className="rounded-lg border border-slate-300 bg-white px-3 py-2 text-xs font-semibold text-slate-700 transition hover:bg-slate-100 sm:mb-0.5"
+                          className="portal-btn-secondary px-3 py-2 text-xs font-semibold sm:mb-0.5"
                         >
                           {t('archiveFilterReset')}
                         </button>
                       )}
                     </div>
-                    <div className="space-y-3">
+                    <div className="portal-table-wrap">
                       {financeArchiveSourceList.length === 0 ? (
-                        <p className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-500">
-                          {t('archivePageEmpty')}
-                        </p>
+                        <p className={`portal-empty m-4`}>{t('archivePageEmpty')}</p>
                       ) : financeArchiveFiltered.length === 0 ? (
-                        <p className="rounded-xl border border-dashed border-amber-200 bg-amber-50/60 p-6 text-sm text-amber-950/90">
+                        <p className="portal-chart-warn m-4 p-6 text-sm text-amber-950/90 dark:text-amber-200">
                           {t('archiveFilterNoResults')}
                         </p>
                       ) : (
-                        financeArchiveFiltered.map((record) => {
-                          const isPublished = record.status === 'history'
-                          return (
-                            <article
-                              key={record.id}
-                              className={`rounded-xl border p-4 ${
-                                isPublished
-                                  ? 'border-emerald-200 bg-emerald-50/40'
-                                  : 'border-slate-200 bg-white'
-                              }`}
-                            >
-                              <div
-                                role="button"
-                                tabIndex={0}
-                                className="cursor-pointer rounded-lg text-left outline-none ring-offset-2 focus-visible:ring-2 focus-visible:ring-violet-400"
-                                onClick={() => setDetailRecordId(record.id)}
-                                onKeyDown={(e) => {
-                                  if (e.key === 'Enter' || e.key === ' ') {
-                                    e.preventDefault()
-                                    setDetailRecordId(record.id)
-                                  }
-                                }}
-                              >
-                                <p className="font-medium">{record.vendorName}</p>
-                                <p className="text-xs text-slate-500">{record.vendorCode}</p>
-                                {isPublished ? (
-                                  <p className="mt-2 inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-800">
-                                    {t('archivePublishedBadge')}
-                                  </p>
-                                ) : null}
-                                <div className="mt-2 space-y-1 text-xs text-slate-600">
-                                  <p>
-                                    <span className="font-medium">{t('detailAmount')}</span>{' '}
-                                    {formatIdr.format(record.amount)}
-                                  </p>
-                                  <p>
-                                    <span className="font-medium">{t('archiveArchivedAtLabel')}</span>{' '}
-                                    {record.archivedAt
-                                      ? formatDate(record.archivedAt, dateLocale)
-                                      : '-'}
-                                  </p>
-                                  {isPublished ? (
-                                    <p>
-                                      <span className="font-medium">{t('publishedLabel')}</span>{' '}
-                                      {record.publishedAt
-                                        ? formatDate(record.publishedAt, dateLocale)
-                                        : '-'}
-                                    </p>
-                                  ) : null}
-                                  <p>
-                                    <span className="font-medium">{t('fileLabel')}</span>{' '}
-                                    {record.stampedPaperFileName ?? '-'}
-                                  </p>
-                                  <p className="pt-1 text-[11px] text-violet-600">{t('archiveClickForDetail')}</p>
-                                </div>
-                              </div>
-                              {isPublished ? (
-                                <ArchivePublishedDownloadButtons
-                                  record={record}
-                                  apiConnected={apiConnected}
-                                  t={t}
-                                  onDownloadKind={(kind) => void handleArchivePublishedDownload(record, kind)}
-                                  onDownloadSummary={() =>
-                                    void handleArchivePublishedDownload(record, 'stamped-paper')
-                                  }
-                                />
-                              ) : null}
-                              {isPublished ? null : (
-                                <button
-                                  type="button"
-                                  onClick={() => publishPaper(record.id)}
-                                  className="mt-3 rounded-lg bg-violet-600 px-3 py-2 text-xs font-semibold text-white transition hover:bg-violet-500"
+                        <div className="portal-table">
+                          <div className={`portal-table-head portal-table-row portal-table-row--archive`}>
+                            <div className="portal-table-th">{t('vendorName')}</div>
+                            <div className="portal-table-th">{t('recordTableColAmount')}</div>
+                            <div className="portal-table-th">{t('recordTableColDate')}</div>
+                            <div className="portal-table-th">{t('statusLabel')}</div>
+                            <div className="portal-table-th">{t('recordTableColActions')}</div>
+                          </div>
+                          <div className="portal-table-body">
+                            {financeArchiveFiltered.map((record, index) => {
+                              const isPublished = record.status === 'history'
+                              const zebraClass =
+                                index % 2 === 0 ? 'portal-list-zebra-a' : 'portal-list-zebra-b'
+                              const remoteWorking = recordWorkingByOther(
+                                record.id,
+                                currentUserId,
+                                invoiceEditing,
+                              )
+                              const blocked = Boolean(remoteWorking)
+                              const rowClass = `${zebraClass} ${blocked ? 'z-20 opacity-60' : 'portal-table-row--clickable'}`
+                              return (
+                                <div
+                                  key={record.id}
+                                  role="button"
+                                  tabIndex={blocked ? -1 : 0}
+                                  aria-disabled={blocked}
+                                  className={`portal-table-row portal-table-row--archive relative ${rowClass}`}
+                                  onClick={() => {
+                                    if (!blocked) tryOpenDetail(record.id)
+                                  }}
+                                  onKeyDown={(e) => {
+                                    if (blocked) return
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                      e.preventDefault()
+                                      tryOpenDetail(record.id)
+                                    }
+                                  }}
                                 >
-                                  {t('publishPaperForm')}
-                                </button>
-                              )}
-                            </article>
-                          )
-                        })
+                                  <div className="portal-table-td">
+                                    <p className="truncate font-semibold portal-heading">{record.vendorName}</p>
+                                    <p className="portal-muted truncate text-xs">{record.vendorCode}</p>
+                                  </div>
+                                  <div className="portal-table-td text-sm portal-body">
+                                    {formatIdr.format(record.amount)}
+                                  </div>
+                                  <div className="portal-table-td text-sm portal-body">
+                                    <p>
+                                      {record.archivedAt
+                                        ? formatDate(record.archivedAt, dateLocale)
+                                        : '—'}
+                                    </p>
+                                    {isPublished && record.publishedAt ? (
+                                      <p className="portal-muted mt-0.5 text-[10px]">
+                                        {t('publishedLabel')} {formatDate(record.publishedAt, dateLocale)}
+                                      </p>
+                                    ) : null}
+                                  </div>
+                                  <div className="portal-table-td">
+                                    {isPublished ? (
+                                      <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-800 dark:bg-emerald-600/20 dark:text-emerald-200">
+                                        {t('archivePublishedBadge')}
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-amber-900 dark:bg-amber-600/20 dark:text-amber-200">
+                                        {t('archiveStatusPendingPublish')}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div
+                                    className="portal-table-td flex min-w-0 flex-wrap gap-1"
+                                    onClick={(e) => e.stopPropagation()}
+                                    onKeyDown={(e) => e.stopPropagation()}
+                                  >
+                                    {isPublished ? (
+                                      apiConnected ? (
+                                        <>
+                                          <button
+                                            type="button"
+                                            disabled={blocked}
+                                            onClick={() =>
+                                              void handleArchivePublishedDownload(record, 'stamped-paper')
+                                            }
+                                            className="portal-btn-secondary px-2 py-1 text-[10px] font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                                          >
+                                            {t('archiveDocStampedPaper')}
+                                          </button>
+                                          {record.invoice
+                                            ? formulaFormFileNamesFromInvoice(record.invoice).map(
+                                                (name, formulaIndex) => (
+                                                  <button
+                                                    key={`formula-${formulaIndex}`}
+                                                    type="button"
+                                                    disabled={blocked}
+                                                    onClick={() =>
+                                                      void handleArchivePublishedDownload(
+                                                        record,
+                                                        'formula-form',
+                                                        formulaIndex,
+                                                      )
+                                                    }
+                                                    className="portal-btn-secondary px-2 py-1 text-[10px] font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                                                  >
+                                                    {formulaFormFileNamesFromInvoice(record.invoice).length > 1
+                                                      ? `${t('archiveDocFormulaForm')} ${formulaIndex + 1}`
+                                                      : t('archiveDocFormulaForm')}
+                                                  </button>
+                                                ),
+                                              )
+                                            : null}
+                                          {agreementFileNamesFromRecord(record).map((name, agreementIndex) => (
+                                            <button
+                                              key={`agreement-${agreementIndex}`}
+                                              type="button"
+                                              disabled={blocked}
+                                              onClick={() =>
+                                                void handleArchivePublishedDownload(
+                                                  record,
+                                                  'agreement',
+                                                  agreementIndex,
+                                                )
+                                              }
+                                              className="portal-btn-secondary px-2 py-1 text-[10px] font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                                            >
+                                              {agreementFileNamesFromRecord(record).length > 1
+                                                ? `${t('archiveDocAgreement')} ${agreementIndex + 1}`
+                                                : t('archiveDocAgreement')}
+                                            </button>
+                                          ))}
+                                        </>
+                                      ) : (
+                                        <button
+                                          type="button"
+                                          disabled={blocked}
+                                          onClick={() =>
+                                            void handleArchivePublishedDownload(record, 'stamped-paper')
+                                          }
+                                          className="portal-btn-secondary px-2 py-1 text-[10px] font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                                        >
+                                          {t('archiveDownloadSummaryOffline')}
+                                        </button>
+                                      )
+                                    ) : (
+                                      <button
+                                        type="button"
+                                        disabled={blocked}
+                                        onClick={() => {
+                                          void publishPaper(record.id).then(() =>
+                                            celebratePublish(record.id, record.vendorName),
+                                          )
+                                        }}
+                                        className="portal-btn-primary px-2.5 py-1 text-[10px] font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                                      >
+                                        {t('publishPaperForm')}
+                                      </button>
+                                    )}
+                                  </div>
+                                  {remoteWorking ? (
+                                    <RecordWorkingOverlay
+                                      processingLabel={t('recordProcessing')}
+                                      userName={remoteWorking.userName}
+                                      avatarPreset={remoteWorking.avatarPreset}
+                                      title={t('recordWorkingBy').replace('{name}', remoteWorking.userName)}
+                                    />
+                                  ) : null}
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
                       )}
                     </div>
                   </section>
@@ -860,32 +1785,105 @@ export function PortalDashboard() {
               path="history"
               element={
                 userRole === 'buyers' ? (
-                  <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-                    <h2 className="mb-4 text-base font-semibold text-slate-900">{t('historyPageTitle')}</h2>
-                    <p className="mb-4 text-sm text-slate-600">{t('historyPageSubtitleBuyers')}</p>
-                    <div className="space-y-3">
+                  <section className={`portal-card p-6`}>
+                    <h2 className="mb-4 text-base font-semibold portal-heading">{t('historyPageTitle')}</h2>
+                    <p className="portal-body mb-4 text-sm">{t('historyPageSubtitleBuyers')}</p>
+                    <RecordListFilterBar
+                      searchQuery={listSearchQuery}
+                      onSearchChange={setListSearchQuery}
+                      searchLabel={t('recordFilterSearchLabel')}
+                      searchPlaceholder={t('recordFilterSearchPlaceholder')}
+                      statusFilter="all"
+                      onStatusFilterChange={() => {}}
+                      statusLabel=""
+                      statusOptions={[]}
+                      resetLabel={t('recordFilterReset')}
+                      onReset={resetListFilters}
+                      showReset={listSearchQuery.trim() !== ''}
+                    />
+                    <div className="portal-table-wrap">
                       {buyerHistoryRecords.length === 0 ? (
-                        <p className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-500">
-                          {t('historyPageEmptyBuyers')}
+                        <p className={`portal-empty m-4`}>{t('historyPageEmptyBuyers')}</p>
+                      ) : buyerHistoryFiltered.length === 0 ? (
+                        <p className="portal-chart-warn m-4 p-6 text-sm text-amber-950/90 dark:text-amber-200">
+                          {t('recordFilterNoResults')}
                         </p>
                       ) : (
-                        buyerHistoryRecords.map((record) => (
-                          <article key={record.id} className="rounded-xl border border-slate-200 p-4">
-                            <p className="font-medium">{record.vendorName}</p>
-                            <p className="text-xs text-slate-500">{record.vendorCode}</p>
-                            {record.status === 'history' ? (
-                              <p className="mt-2 text-xs text-slate-600">
-                                {t('publishedLabel')}{' '}
-                                {record.publishedAt ? formatDate(record.publishedAt, dateLocale) : '-'}
-                              </p>
-                            ) : (
-                              <p className="mt-2 text-xs text-slate-600">
-                                {t('archiveArchivedAtLabel')}{' '}
-                                {record.archivedAt ? formatDate(record.archivedAt, dateLocale) : '-'}
-                              </p>
-                            )}
-                          </article>
-                        ))
+                        <div className="portal-table">
+                          <div className={`portal-table-head portal-table-row portal-table-row--history`}>
+                            <div className="portal-table-th">{t('vendorName')}</div>
+                            <div className="portal-table-th">{t('recordTableColDate')}</div>
+                            <div className="portal-table-th">{t('statusLabel')}</div>
+                            <div className="portal-table-th">{t('recordTableColDocuments')}</div>
+                          </div>
+                          <div className="portal-table-body">
+                            {buyerHistoryFiltered.map((record, index) => {
+                              const isPublished = record.status === 'history'
+                              const dateIso = isPublished
+                                ? record.publishedAt
+                                : record.archivedAt
+                              const recordDocuments = listRecordDocuments(record)
+                              const zebraClass =
+                                index % 2 === 0 ? 'portal-list-zebra-a' : 'portal-list-zebra-b'
+                              return (
+                                <div
+                                  key={record.id}
+                                  role="button"
+                                  tabIndex={0}
+                                  className={`portal-table-row portal-table-row--history portal-table-row--clickable ${zebraClass}`}
+                                  onClick={() => tryOpenDetail(record.id)}
+                                  onKeyDown={(e) => {
+                                    if (e.key === 'Enter' || e.key === ' ') {
+                                      e.preventDefault()
+                                      tryOpenDetail(record.id)
+                                    }
+                                  }}
+                                >
+                                  <div className="portal-table-td">
+                                    <p className="truncate font-semibold portal-heading">{record.vendorName}</p>
+                                    <p className="portal-muted truncate text-xs">{record.vendorCode}</p>
+                                  </div>
+                                  <div className="portal-table-td text-sm portal-body">
+                                    {dateIso ? formatDate(dateIso, dateLocale) : '—'}
+                                  </div>
+                                  <div className="portal-table-td">
+                                    {isPublished ? (
+                                      <span className="inline-flex rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-emerald-800 dark:bg-emerald-600/20 dark:text-emerald-200">
+                                        {t('archivePublishedBadge')}
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex rounded-full bg-slate-200 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-700 dark:bg-slate-700/50 dark:text-slate-200">
+                                        {t('historyStatusArchived')}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <div
+                                    className="portal-table-td"
+                                    onClick={(e) => e.stopPropagation()}
+                                    onKeyDown={(e) => e.stopPropagation()}
+                                  >
+                                    {recordDocuments.length > 0 ? (
+                                      <div className="flex flex-wrap gap-1">
+                                        {recordDocuments.map((doc) => (
+                                          <button
+                                            key={`${doc.kind}-${doc.fileIndex ?? 0}-${doc.fileName}`}
+                                            type="button"
+                                            onClick={() => openDocPreview(record.id, doc.kind, doc.fileName, doc.fileIndex ?? 0)}
+                                            className="portal-btn-secondary px-2 py-1 text-[10px] font-semibold"
+                                          >
+                                            {recordDocLabel(doc.kind)}
+                                          </button>
+                                        ))}
+                                      </div>
+                                    ) : (
+                                      <span className="text-xs portal-muted">—</span>
+                                    )}
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
                       )}
                     </div>
                   </section>
@@ -898,35 +1896,32 @@ export function PortalDashboard() {
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
 
-      </main>
+      </PortalLayout>
       {isLoading ? (
-        <div className="fixed inset-x-0 top-20 z-50 mx-auto w-fit rounded-full bg-slate-900 px-4 py-2 text-xs text-white shadow-lg sm:top-24">
+        <div className="portal-toast">
           {t('loadingData')}
         </div>
       ) : null}
 
       {userRole === 'finance' && isInvoiceModalOpen ? (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/40 p-4 backdrop-blur-sm">
-          <div className="max-h-[92vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+        <div className="fixed inset-0 z-[100] flex items-center justify-center portal-overlay p-4">
+          <div className="portal-modal max-h-[92vh] w-full max-w-3xl overflow-y-auto p-6">
             <div className="mb-4 flex items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold text-slate-900">{t('invoiceFormTitle')}</h2>
-              <button
-                type="button"
-                onClick={() => setIsInvoiceModalOpen(false)}
-                className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
-              >
-                {t('close')}
-              </button>
+              <h2 className="portal-heading text-lg font-semibold">
+                {isEditingInvoice ? t('financeEditInvoice') : t('invoiceFormTitle')}
+              </h2>
+              <ModalCloseButton onClick={() => setIsInvoiceModalOpen(false)} label={t('close')} />
             </div>
             <label className="mb-4 block space-y-1 text-sm">
               <span>{t('invoiceSelectHint')}</span>
               <select
                 value={selectedRecordId}
-                onChange={(event) => setSelectedRecordId(event.currentTarget.value)}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2"
+                disabled
+                className="portal-input cursor-not-allowed opacity-70"
+                aria-disabled
               >
                 <option value="">{t('invoiceSelectPlaceholder')}</option>
-                {financeInvoiceList.map((record) => (
+                {financeInvoiceFormRecords.map((record) => (
                   <option key={record.id} value={record.id}>
                     {record.vendorCode} - {record.vendorName}
                   </option>
@@ -934,8 +1929,8 @@ export function PortalDashboard() {
               </select>
             </label>
 
-            {financeInvoiceList.length === 0 ? (
-              <div className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-600">
+            {financeInvoiceFormRecords.length === 0 ? (
+              <div className="portal-empty text-sm">
                 {t('invoiceEmptyHint')}
               </div>
             ) : selectedRecord ? (
@@ -949,35 +1944,38 @@ export function PortalDashboard() {
                   <span>{t('invNo')}</span>
                   <input
                     name="number"
-                    defaultValue=""
-                    placeholder={`${selectedRecord.vendorCode}-001`}
+                    value={previewInvoiceNumberForRecord(selectedRecord, records)}
+                    readOnly
+                    aria-readonly
                     required
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2"
+                    className="portal-input-readonly"
                   />
+                  <span className="portal-muted block text-xs">{t('invNoAuto')}</span>
                 </label>
                 <label className="space-y-1 text-sm">
                   <span>{t('invParty')}</span>
                   <input
                     value={selectedRecord.vendorName}
                     readOnly
-                    className="w-full rounded-lg border border-slate-300 bg-slate-100 px-3 py-2"
+                    aria-readonly
+                    className="portal-input-readonly"
                   />
                 </label>
                 <label className="space-y-1 text-sm">
                   <span>{t('invAttn')}</span>
                   <input
                     name="attn"
-                    defaultValue={userName}
+                    defaultValue={selectedInvoiceDefaults.attn}
                     required
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2"
+                    className="portal-input"
                   />
                 </label>
                 <label className="space-y-1 text-sm">
                   <span>{t('invPaymentMethod')}</span>
                   <select
                     name="paymentMethod"
-                    defaultValue="Transfer"
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2"
+                    defaultValue={selectedInvoiceDefaults.paymentMethod}
+                    className="portal-input"
                   >
                     <option>Transfer</option>
                     <option>Reduce the bill</option>
@@ -988,30 +1986,48 @@ export function PortalDashboard() {
                   <input
                     type="date"
                     name="dueDate"
-                    defaultValue=""
+                    defaultValue={selectedInvoiceDefaults.dueDate}
+                    min={
+                      isEditingInvoice &&
+                      selectedInvoiceDefaults.dueDate < todayIsoDateLocal()
+                        ? undefined
+                        : todayIsoDateLocal()
+                    }
                     required
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2"
+                    className="portal-input"
                   />
+                </label>
+                <label className="space-y-1 text-sm md:col-span-2">
+                  <span>{t('invPphEmail')}</span>
+                  <input
+                    type="text"
+                    name="pphEmail"
+                    defaultValue={selectedInvoiceDefaults.pphEmail}
+                    required
+                    className="portal-input"
+                    placeholder={INVOICE_COMPANY.pphNoteEmail}
+                  />
+                  <span className="portal-muted block text-xs">{t('invPphEmailHint')}</span>
                 </label>
                 <label className="space-y-1 text-sm">
                   <span>{t('invMemo')}</span>
-                  <input name="memo" defaultValue="" className="w-full rounded-lg border border-slate-300 px-3 py-2" />
+                  <input name="memo" defaultValue={selectedInvoiceDefaults.memo} className="portal-input" />
                 </label>
                 <label className="space-y-1 text-sm">
                   <span>{t('invVat')}</span>
                   <input
                     type="number"
                     name="vatPercent"
-                    defaultValue={11}
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2"
+                    defaultValue={selectedInvoiceDefaults.vatPercent}
+                    className="portal-input"
                   />
                 </label>
                 <label className="space-y-1 text-sm">
                   <span>{t('invTaxType')}</span>
                   <select
                     name="taxType"
-                    defaultValue="Tax art 23"
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2"
+                    defaultValue={selectedInvoiceDefaults.taxType}
+                    className="portal-input"
                   >
                     <option>Tax art 23</option>
                     <option>Tax art 4(2)</option>
@@ -1022,85 +2038,123 @@ export function PortalDashboard() {
                   <input
                     type="number"
                     name="taxPercent"
-                    defaultValue={2}
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2"
+                    defaultValue={selectedInvoiceDefaults.taxPercent}
+                    className="portal-input"
                   />
                 </label>
-                <label className="space-y-1 text-sm">
-                  <span>{t('invTransferTo')}</span>
-                  <input
-                    name="transferTo"
-                    defaultValue="Bank Mayapada"
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2"
-                  />
-                </label>
-                <label className="space-y-1 text-sm">
-                  <span>{t('invBankBranch')}</span>
-                  <input
-                    name="bankBranch"
-                    defaultValue=""
-                    required
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2"
-                  />
-                </label>
-                <label className="space-y-1 text-sm">
-                  <span>{t('invAccountNo')}</span>
-                  <input
-                    name="accountNo"
-                    defaultValue=""
-                    required
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2"
-                  />
-                </label>
-                <label className="space-y-1 text-sm">
-                  <span>{t('invBeneficiary')}</span>
-                  <input
-                    name="beneficiaryName"
-                    defaultValue=""
-                    required
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2"
-                  />
-                </label>
-                <label className="space-y-1 text-sm">
-                  <span>{t('invFormulaForm')}</span>
-                  <input
-                    name="formulaFormFile"
-                    type="file"
-                    accept=".pdf,application/pdf"
-                    required
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-violet-50 file:px-3 file:py-1.5 file:font-medium file:text-violet-700"
-                  />
-                </label>
-                <label className="space-y-1 text-sm">
-                  <span>{t('invSigner')}</span>
-                  <select
-                    name="signer"
-                    defaultValue={signerOptions[0]}
-                    className="w-full rounded-lg border border-slate-300 px-3 py-2"
-                  >
-                    {signerOptions.map((name) => (
-                      <option key={name}>{name}</option>
-                    ))}
-                  </select>
-                </label>
+                <InvoiceBankAccountFields
+                  forRole="finance"
+                  value={invoiceBankDetails}
+                  onChange={setInvoiceBankDetails}
+                  labels={{
+                    bankName: t('invBankName'),
+                    bankNamePlaceholder: t('invBankNamePlaceholder'),
+                    bankAccountVariant: t('invBankAccountVariant'),
+                    bankAccountVariantPlaceholder: t('invBankAccountVariantPlaceholder'),
+                    beneficiary: t('invBeneficiary'),
+                    bankBranch: t('invBankBranch'),
+                    accountNo: t('invAccountNo'),
+                    accountNoDigitsOnly: t('invAccountNoDigitsOnly'),
+                    addNew: t('invBankAddNew'),
+                    addNewTitle: t('invBankAddNewTitle'),
+                    addNewSave: t('invBankAddNewSave'),
+                    cancel: t('cancel'),
+                    loading: t('loadingData'),
+                    noneSelected: t('invBankNoneSelected'),
+                    delete: t('invBankDelete'),
+                    deleteConfirm: t('invBankDeleteConfirm'),
+                    deleteFailed: t('invBankDeleteFailed'),
+                  }}
+                />
+                <FormulaFormFilesField
+                  portalUI
+                  files={formulaFormFiles}
+                  onFilesChange={setFormulaFormFiles}
+                  existingFiles={
+                    isEditingInvoice && selectedRecord && apiConnected
+                      ? visibleExistingFormulaFiles.map((item) => ({
+                          originalIndex: item.originalIndex,
+                          name: item.name,
+                          previewUrl: recordFileUrl(
+                            selectedRecord.id,
+                            'formula-form',
+                            item.originalIndex,
+                          ),
+                        }))
+                      : []
+                  }
+                  onRemoveExisting={handleRemoveExistingFormulaSlot}
+                  required={!isEditingInvoice || removedExistingFormulaSlots.size > 0}
+                  onPreviewExisting={(_url, name) => {
+                    const item = visibleExistingFormulaFiles.find((f) => f.name === name)
+                    if (!selectedRecord || !item) return
+                    setDocPreview({
+                      recordId: selectedRecord.id,
+                      kind: 'formula-form',
+                      fileName: name,
+                      fileIndex: item.originalIndex,
+                    })
+                  }}
+                  labels={{
+                    choose: t('invFormulaForm'),
+                    hint: t('invFormulaPreviewHint'),
+                    maxHint: t('invFormulaFormMax'),
+                    count: t('invFormulaFormCount'),
+                    selected: t('invFormulaSelected'),
+                    currentFile: t('invFormulaCurrentFile'),
+                    preview: t('agreementPreview'),
+                    confirmFile: t('invFormulaConfirmFile'),
+                    cancelPick: t('agreementCancelPick'),
+                    previewUnavailable: t('agreementPreviewUnavailable'),
+                    queueProgress: t('fileUploadQueueProgress'),
+                    remove: t('agreementRemoveFile'),
+                    deleteExisting: t('agreementDeleteFile'),
+                    deleteExistingConfirm: t('invFormulaDeleteConfirm'),
+                    invalidFile: t('invFormulaPdfRequired'),
+                    close: t('close'),
+                  }}
+                />
+                <InvoiceSignerFields
+                  forRole="finance"
+                  value={invoiceSignerSelection}
+                  onChange={setInvoiceSignerSelection}
+                  labels={{
+                    section: t('invSignerSection'),
+                    title: t('invSignerTitle'),
+                    titlePlaceholder: t('invSignerTitlePlaceholder'),
+                    name: t('invSignerName'),
+                    namePlaceholder: t('invSignerNamePlaceholder'),
+                    addNew: t('invSignerAddNew'),
+                    addNewTitle: t('invSignerAddNewTitle'),
+                    addNewSave: t('invSignerAddNewSave'),
+                    cancel: t('cancel'),
+                    loading: t('loadingData'),
+                    noneSelected: t('invSignerNoneSelected'),
+                    delete: t('invSignerDelete'),
+                    deleteConfirm: t('invSignerDeleteConfirm'),
+                    deleteTitle: t('invSignerDeleteTitle'),
+                    deleteTitleConfirm: t('invSignerDeleteTitleConfirm'),
+                    deleteFailed: t('invSignerDeleteFailed'),
+                  }}
+                />
                 <div className="md:col-span-2 flex flex-wrap gap-2">
                   <button
                     type="button"
                     onClick={() => setIsInvoiceModalOpen(false)}
-                    className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50"
+                    className="portal-btn-secondary"
                   >
                     {t('cancel')}
                   </button>
                   <button
                     type="submit"
-                    className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white"
+                    className="portal-btn-primary"
                   >
                     {t('saveInvoice')}
                   </button>
                 </div>
               </form>
             ) : (
-              <p className="rounded-xl border border-dashed border-slate-300 bg-slate-50 p-6 text-sm text-slate-500">
+              <p className="portal-empty">
                 {t('invoicePickHint')}
               </p>
             )}
@@ -1109,68 +2163,117 @@ export function PortalDashboard() {
       ) : null}
 
       {userRole === 'buyers' && isCreateModalOpen ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4 backdrop-blur-sm">
-          <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
+        <div className="fixed inset-0 z-50 flex items-center justify-center portal-overlay p-4 backdrop-blur-sm">
+          <div className={`portal-modal max-h-[90vh] w-full max-w-3xl overflow-y-auto p-6`}>
             <div className="mb-4 flex items-center justify-between gap-3">
-              <h2 className="text-lg font-semibold text-slate-900">{t('modalAddTitle')}</h2>
-              <button
-                type="button"
-                onClick={() => setIsCreateModalOpen(false)}
-                className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
-              >
-                {t('close')}
-              </button>
+              <h2 className="portal-heading text-lg font-semibold">
+                {editingBuyerRecordId ? t('modalEditTitle') : t('modalAddTitle')}
+              </h2>
+              <ModalCloseButton onClick={closeBuyerFormModal} label={t('close')} />
             </div>
-            <form onSubmit={submitBuyerForm} className="grid gap-4 md:grid-cols-2">
-              <label className="space-y-1 text-sm">
+            <form
+              key={editingBuyerRecordId ?? 'create'}
+              onSubmit={submitBuyerForm}
+              className="grid gap-4 md:grid-cols-2"
+            >
+              <label className="space-y-1 text-sm md:col-span-2">
                 <span>{t('vendorCode')}</span>
-                <select
-                  name="vendorCode"
+                <VendorPickerField
+                  vendors={buyerVendors}
                   value={selectedVendorCode}
-                  onChange={(event) => setSelectedVendorCode(event.currentTarget.value)}
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2"
-                >
-                  {vendorOptions.map((option) => (
-                    <option key={option.code} value={option.code}>
-                      {option.code} - {option.name}
-                    </option>
-                  ))}
-                </select>
+                  onChange={setSelectedVendorCode}
+                  loading={vendorsLoading}
+                  name="vendorCode"
+                  labels={{
+                    loading: t('vendorsLoading'),
+                    empty: t('vendorsEmpty'),
+                    searchPlaceholder: t('vendorSearchPlaceholder'),
+                    noResults: t('vendorSearchNoResults'),
+                    listCount: t('vendorSearchListCount'),
+                  }}
+                  addVendorLabel={t('vendorAdd')}
+                  addVendorTitle={t('vendorAddTitle')}
+                  addVendorCodeLabel={t('vendorCode')}
+                  addVendorNameLabel={t('vendorName')}
+                  saveLabel={t('vendorAddSave')}
+                  closeLabel={t('close')}
+                  onCreateVendor={createVendor}
+                />
               </label>
               <label className="space-y-1 text-sm">
                 <span>{t('vendorName')}</span>
                 <input
-                  value={selectedVendor?.name ?? ''}
+                  value={buyerVendorDisplayName}
                   readOnly
-                  className="w-full rounded-lg border border-slate-300 bg-slate-100 px-3 py-2"
+                  className="portal-input-readonly"
                 />
               </label>
               <label className="space-y-1 text-sm">
                 <span>{t('incomeType')}</span>
                 <input
                   name="incomeType"
+                  value={buyerIncomeType}
+                  onChange={(e) => setBuyerIncomeType(e.target.value)}
                   required
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2"
+                  className="portal-input"
                 />
               </label>
-              <label className="space-y-1 text-sm">
-                <span>{t('agreementFile')}</span>
-                <input
-                  type="file"
-                  onChange={(event) => setAgreementFileName(event.currentTarget.files?.[0]?.name ?? '')}
-                  required
-                  className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm file:mr-3 file:rounded-md file:border-0 file:bg-violet-50 file:px-3 file:py-1.5 file:font-medium file:text-violet-700"
-                />
-                {agreementFileName ? (
-                  <p className="text-xs text-slate-500">
-                    {t('selectedFile')} {agreementFileName}
-                  </p>
-                ) : null}
-              </label>
+              <AgreementFilesField
+                portalUI
+                files={agreementFiles}
+                onFilesChange={setAgreementFiles}
+                existingFiles={
+                  editingBuyerRecordId && apiConnected
+                    ? visibleExistingAgreementFiles.map((item) => ({
+                        originalIndex: item.originalIndex,
+                        name: item.name,
+                        previewUrl: recordFileUrl(
+                          editingBuyerRecordId,
+                          'agreement',
+                          item.originalIndex,
+                        ),
+                      }))
+                    : []
+                }
+                onRemoveExisting={handleRemoveExistingAgreementSlot}
+                required={
+                  !editingBuyerRecordId ||
+                  removedExistingAgreementSlots.size > 0 ||
+                  existingAgreementNames.length === 0
+                }
+                onPreviewExisting={(_url, name) => {
+                  const item = visibleExistingAgreementFiles.find((f) => f.name === name)
+                  if (!editingBuyerRecordId || !item) return
+                  setDocPreview({
+                    recordId: editingBuyerRecordId,
+                    kind: 'agreement',
+                    fileName: name,
+                    fileIndex: item.originalIndex,
+                  })
+                }}
+                labels={{
+                  choose: t('agreementFile'),
+                  hint: t('agreementPreviewHint'),
+                  maxHint: t('agreementFormMax'),
+                  count: t('agreementFormCount'),
+                  selected: t('selectedFile'),
+                  currentFile: t('agreementCurrentFile'),
+                  preview: t('agreementPreview'),
+                  confirmFile: t('agreementConfirmFile'),
+                  cancelPick: t('agreementCancelPick'),
+                  previewUnavailable: t('agreementPreviewUnavailable'),
+                  queueProgress: t('fileUploadQueueProgress'),
+                  invalidFile: t('agreementPreviewUnavailable'),
+                  deleteExisting: t('agreementDeleteFile'),
+                  deleteExistingConfirm: t('agreementDeleteConfirm'),
+                  remove: t('agreementRemoveFile'),
+                  close: t('close'),
+                }}
+              />
               <label className="space-y-1 text-sm">
                 <span>{t('amountEarned')}</span>
-                <div className="flex w-full items-stretch rounded-lg border border-slate-300 bg-white focus-within:border-violet-400 focus-within:ring-2 focus-within:ring-violet-200">
-                  <span className="flex shrink-0 items-center border-r border-slate-200 bg-slate-50 px-3 text-sm font-medium text-slate-600">
+                <div className="portal-input-group">
+                  <span className="portal-input-group-prefix">
                     Rp
                   </span>
                   <input
@@ -1181,7 +2284,7 @@ export function PortalDashboard() {
                     onChange={(e) => setAmountEarnedInput(formatIdrWhileTyping(e.target.value))}
                     placeholder="10.000"
                     required
-                    className="min-w-0 flex-1 border-0 bg-transparent px-3 py-2 text-sm outline-none"
+                    className="min-w-0 flex-1 border-0 bg-transparent px-3 py-2 text-sm text-slate-900 outline-none dark:text-violet-50"
                   />
                 </div>
               </label>
@@ -1203,23 +2306,25 @@ export function PortalDashboard() {
                 <span>{t('description')}</span>
                 <textarea
                   name="description"
+                  value={buyerDescription}
+                  onChange={(e) => setBuyerDescription(e.target.value)}
                   required
-                  className="min-h-24 w-full rounded-lg border border-slate-300 px-3 py-2"
+                  className="portal-input min-h-24"
                 />
               </label>
               <div className="md:col-span-2 flex flex-wrap justify-end gap-2">
                 <button
                   type="button"
-                  onClick={() => setIsCreateModalOpen(false)}
-                  className="rounded-lg border border-slate-300 bg-white px-4 py-2 text-sm font-medium text-slate-700"
+                  onClick={closeBuyerFormModal}
+                  className="portal-btn-secondary"
                 >
                   {t('cancel')}
                 </button>
                 <button
                   type="submit"
-                  className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white"
+                  className="portal-btn-primary"
                 >
-                  {t('save')}
+                  {editingBuyerRecordId ? t('saveChanges') : t('save')}
                 </button>
               </div>
             </form>
@@ -1228,119 +2333,177 @@ export function PortalDashboard() {
       ) : null}
 
       {detailRecord ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/30 p-4 backdrop-blur-sm">
-          <div className="w-full max-w-2xl rounded-2xl border border-slate-200 bg-white p-6 shadow-xl">
-            <div className="mb-4 flex items-center justify-between">
-              <h3 className="text-lg font-semibold text-slate-900">{t('detailTitle')}</h3>
-              <button
-                type="button"
-                onClick={() => setDetailRecordId(null)}
-                className="rounded-lg border border-slate-200 px-3 py-1.5 text-sm text-slate-600 hover:bg-slate-50"
-              >
-                {t('close')}
-              </button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center portal-overlay p-4 backdrop-blur-sm">
+          <div className="portal-modal flex max-h-[min(92vh,820px)] w-full max-w-3xl flex-col overflow-hidden">
+            <div className="portal-divider flex shrink-0 items-center justify-between border-b px-5 py-4 sm:px-6">
+              <h3 className="portal-heading text-lg font-semibold">{t('detailTitle')}</h3>
+              <ModalCloseButton onClick={() => setDetailRecordId(null)} label={t('close')} />
             </div>
-            <div className="grid gap-3 text-sm sm:grid-cols-2">
-              <p>
-                <span className="font-medium">{t('detailVendorCode')}</span> {detailRecord.vendorCode}
-              </p>
-              <p>
-                <span className="font-medium">{t('detailVendorName')}</span> {detailRecord.vendorName}
-              </p>
-              <p>
-                <span className="font-medium">{t('detailIncomeType')}</span> {detailRecord.incomeType}
-              </p>
-              <p>
-                <span className="font-medium">{t('detailAmount')}</span>{' '}
-                {formatIdr.format(detailRecord.amount)}
-              </p>
-              <p>
-                <span className="font-medium">{t('detailPeriodStart')}</span>{' '}
-                {formatDate(detailRecord.periodStart, dateLocale)}
-              </p>
-              <p>
-                <span className="font-medium">{t('detailPeriodEnd')}</span>{' '}
-                {formatDate(detailRecord.periodEnd, dateLocale)}
-              </p>
-              <p className="sm:col-span-2">
-                <span className="font-medium">{t('detailAgreementFile')}</span>{' '}
-                {detailRecord.agreementFileName}
-              </p>
-              <p className="sm:col-span-2">
-                <span className="font-medium">{t('detailDescription')}</span> {detailRecord.description}
-              </p>
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">
+              {userRole === 'buyers' ? (
+                <BuyerRecordDetailView
+                  record={detailRecord}
+                  allRecords={records}
+                  t={t}
+                  dateLocale={dateLocale}
+                  formatAmount={(amount) => formatIdr.format(amount)}
+                  formatDate={formatDate}
+                  apiConnected={apiConnected}
+                  documents={listRecordDocuments(detailRecord)}
+                  onDocDownload={(kind, fileIndex = 0) =>
+                    void handleArchivePublishedDownload(detailRecord, kind, fileIndex)
+                  }
+                  onDownloadSummary={() =>
+                    void handleArchivePublishedDownload(detailRecord, 'stamped-paper')
+                  }
+                  recordDocLabel={recordDocLabel}
+                  requestingEdit={requestingEditId === detailRecord.id}
+                  onRequestEdit={() => void handleAskBuyerEditPermission(detailRecord.id)}
+                  onEdit={() => openBuyerEditModal(detailRecord)}
+                />
+              ) : (
+                <FinanceRecordDetailView
+                  record={detailRecord}
+                  allRecords={records}
+                  t={t}
+                  dateLocale={dateLocale}
+                  formatAmount={(amount) => formatIdr.format(amount)}
+                  formatDate={formatDate}
+                  apiConnected={apiConnected}
+                  onDownloadKind={(kind, fileIndex) =>
+                    void handleArchivePublishedDownload(detailRecord, kind, fileIndex ?? 0)
+                  }
+                  onDownloadSummary={() => void handleArchivePublishedDownload(detailRecord, 'stamped-paper')}
+                  recordDocLabel={recordDocLabel}
+                  footer={
+                    financeInvoiceNotDone(detailRecord) ||
+                    financeNeedsStampUpload(detailRecord) ||
+                    isFinanceTaskPausedForBuyerEdit(detailRecord) ? (
+                      <FinanceRecordDetailFooter record={detailRecord} t={t}>
+                        {isFinanceTaskPausedForBuyerEdit(detailRecord) ? (
+                          <p className="portal-body w-full rounded-xl border border-slate-300 bg-slate-100/80 px-3.5 py-2.5 text-sm text-slate-700">
+                            {t('financeBuyerEditApprovedHint')}
+                          </p>
+                        ) : financeInvoiceNotDone(detailRecord) ? (
+                          <div className="flex justify-end">
+                            <button
+                              type="button"
+                              onClick={() => goToInvoiceForRecord(detailRecord.id)}
+                              className="portal-btn-primary px-4 py-2"
+                            >
+                              {t('financeContinueInvoice')}
+                            </button>
+                          </div>
+                        ) : financeNeedsStampUpload(detailRecord) ? (
+                          <div className="flex w-full flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">
+                            <p className="portal-body text-sm sm:mr-auto">
+                              {financeStampReadyToPublish(detailRecord)
+                                ? t('financeStampPublishHint')
+                                : t('financeStampUploadHint')}
+                            </p>
+                            <button
+                              type="button"
+                              onClick={() => goToInvoiceForRecord(detailRecord.id)}
+                              className="portal-btn-secondary px-4 py-2"
+                            >
+                              {t('financeEditInvoice')}
+                            </button>
+                            {financeStampReadyToPublish(detailRecord) ? (
+                              <StampedPaperUploadButton
+                                recordId={detailRecord.id}
+                                onConfirm={handleTaskStampUpload}
+                                onPublish={async (id) => {
+                                  await handleTaskStampPublish(id)
+                                  setDetailRecordId(null)
+                                }}
+                                stampUploaded
+                                uploadedFileName={detailRecord.stampedPaperFileName ?? ''}
+                                serverPreviewUrl={recordFileUrl(detailRecord.id, 'stamped-paper')}
+                                labels={{
+                                  pickFile: t('uploadStampedPaper'),
+                                  viewStamped: t('taskStampViewUploaded'),
+                                  close: t('close'),
+                                  confirmUpload: t('taskStampConfirmUpload'),
+                                  publish: t('taskStampPublish'),
+                                  previewUnavailable: t('taskStampPreviewUnavailable'),
+                                  uploading: t('loadingData'),
+                                  publishing: t('taskStampPublishing'),
+                                }}
+                              />
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setDetailRecordId(null)
+                                  navigate('/dashboard/task')
+                                }}
+                                className="portal-btn-primary px-4 py-2"
+                              >
+                                {t('financeGoToTaskUpload')}
+                              </button>
+                            )}
+                          </div>
+                        ) : null}
+                      </FinanceRecordDetailFooter>
+                    ) : undefined
+                  }
+                />
+              )}
             </div>
-            {(detailRecord.status === 'archived' || detailRecord.status === 'history') && (
-              <div className="mt-4 grid gap-2 border-t border-slate-200 pt-4 text-sm text-slate-700 sm:grid-cols-2">
-                <p className="sm:col-span-2">
-                  <span className="font-medium text-slate-900">{t('statusLabel')}</span>{' '}
-                  <span className="capitalize">{detailRecord.status.replaceAll('_', ' ')}</span>
-                </p>
-                {detailRecord.archivedAt ? (
-                  <p className="sm:col-span-2">
-                    <span className="font-medium text-slate-900">{t('archiveArchivedAtLabel')}</span>{' '}
-                    {formatDate(detailRecord.archivedAt, dateLocale)}
-                  </p>
-                ) : null}
-                {detailRecord.status === 'history' && detailRecord.publishedAt ? (
-                  <p className="sm:col-span-2">
-                    <span className="font-medium text-slate-900">{t('publishedLabel')}</span>{' '}
-                    {formatDate(detailRecord.publishedAt, dateLocale)}
-                  </p>
-                ) : null}
-                {detailRecord.stampedPaperFileName ? (
-                  <p className="sm:col-span-2">
-                    <span className="font-medium text-slate-900">{t('detailStampedPaperFile')}</span>{' '}
-                    {detailRecord.stampedPaperFileName}
-                  </p>
-                ) : null}
-                {detailRecord.generatedBy ? (
-                  <p>
-                    <span className="font-medium text-slate-900">{t('detailGeneratedBy')}</span>{' '}
-                    {detailRecord.generatedBy}
-                  </p>
-                ) : null}
-                {detailRecord.generatedAt ? (
-                  <p>
-                    <span className="font-medium text-slate-900">{t('detailGeneratedAt')}</span>{' '}
-                    {formatDate(detailRecord.generatedAt, dateLocale)}
-                  </p>
-                ) : null}
-                {detailRecord.invoice?.number ? (
-                  <p className="sm:col-span-2">
-                    <span className="font-medium text-slate-900">{t('detailInvoiceNumber')}</span>{' '}
-                    {detailRecord.invoice.number}
-                  </p>
-                ) : null}
-              </div>
-            )}
-            {userRole === 'finance' && detailRecord.status === 'history' ? (
-              <ArchivePublishedDownloadButtons
-                record={detailRecord}
-                apiConnected={apiConnected}
-                t={t}
-                onDownloadKind={(kind) => void handleArchivePublishedDownload(detailRecord, kind)}
-                onDownloadSummary={() => void handleArchivePublishedDownload(detailRecord, 'stamped-paper')}
-              />
-            ) : null}
-            {userRole === 'finance' ? (
-              <div className="mt-6 flex flex-wrap items-center justify-end gap-3 border-t border-slate-100 pt-4">
-                {financeInvoiceNotDone(detailRecord) ? (
-                  <button
-                    type="button"
-                    onClick={() => goToInvoiceForRecord(detailRecord.id)}
-                    className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white transition hover:bg-violet-500"
-                  >
-                    {t('financeContinueInvoice')}
-                  </button>
-                ) : (
-                  <p className="text-sm text-slate-500">{t('financeInvoiceAlreadyDone')}</p>
-                )}
-              </div>
-            ) : null}
           </div>
         </div>
       ) : null}
-    </div>
+
+      {taskInvoicePrintRecord?.invoice ? (
+        <InvoicePrintModal
+          record={taskInvoicePrintRecord}
+          invoice={taskInvoicePrintRecord.invoice}
+          allRecords={records}
+          issuedAt={taskInvoicePrintRecord.generatedAt}
+          title={t('invoicePrintTitle')}
+          printLabel={t('invoicePrint')}
+          closeLabel={t('close')}
+          onClose={() => setTaskInvoicePrintRecordId(null)}
+        />
+      ) : null}
+
+      <RecordPublishSuccessModal
+        open={publishSuccess != null}
+        title={t('recordPublishSuccessTitle')}
+        subtitle={
+          publishSuccess
+            ? `${publishSuccess.vendorName} — ${t('recordPublishSuccessSubtitle')}`
+            : t('recordPublishSuccessSubtitle')
+        }
+        onClose={dismissSuccess}
+      />
+
+      <RecordDocumentPreviewModal
+        open={docPreview != null}
+        fileName={docPreview?.fileName ?? ''}
+        previewUrl={
+          docPreview
+            ? recordFileUrl(docPreview.recordId, docPreview.kind, docPreview.fileIndex ?? 0)
+            : ''
+        }
+        closeLabel={t('close')}
+        previewUnavailableLabel={t('agreementPreviewUnavailable')}
+        onClose={() => setDocPreview(null)}
+      />
+
+      {userRole === 'buyers' && !isCreateModalOpen && !editingBuyerRecordId ? (
+        <button
+          type="button"
+          onClick={openBuyerCreateModal}
+          className="portal-fab-add"
+          aria-label={t('addData')}
+        >
+          <span className="portal-fab-add-icon" aria-hidden>
+            +
+          </span>
+          <span>{t('addData')}</span>
+        </button>
+      ) : null}
+    </>
   )
 }

@@ -1,27 +1,91 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
+import gsap from 'gsap'
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
+import { FiEye, FiEyeOff } from 'react-icons/fi'
 import { FcGoogle } from 'react-icons/fc'
 import { useNavigate } from 'react-router-dom'
 import { LanguageToggle } from '../components/LanguageToggle'
+import { ThemeToggle } from '../components/ThemeToggle'
 import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
 import { loadLottieWeb, type LottieJson, type LottiePlayer } from '../lib/lottieWeb'
 import { mountGoogleSignInButton } from '../lib/googleIdentity'
 
 const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined
+const USERNAME_RE = /^[a-z0-9_]{3,32}$/
+
+type AuthPanel = 'login' | 'signup' | 'verify'
+
+function formatVerificationCooldownDuration(totalSec: number): string {
+  if (!Number.isFinite(totalSec) || totalSec < 0) return '0s'
+  const s = Math.floor(totalSec)
+  if (s < 60) return `${s}s`
+  if (s < 3600) {
+    const m = Math.floor(s / 60)
+    const r = s % 60
+    if (r === 0) return `${m} min`
+    return `${m} min ${r} s`
+  }
+  const h = Math.floor(s / 3600)
+  const rem = s % 3600
+  const m = Math.floor(rem / 60)
+  if (m === 0) return `${h} h`
+  return `${h} h ${m} min`
+}
 
 export function Login() {
-  const { login, loginWithGoogleCredential } = useAuth()
+  const { login, loginWithGoogleCredential, sendEmailSignupCode, verifyEmailSignup } = useAuth()
   const { t } = useLanguage()
   const navigate = useNavigate()
+  const [panel, setPanel] = useState<AuthPanel>('login')
   const [username, setUsername] = useState('')
   const [password, setPassword] = useState('')
+  const [signupEmail, setSignupEmail] = useState('')
+  const [signupUsername, setSignupUsername] = useState('')
+  const [signupPassword, setSignupPassword] = useState('')
+  const [signupPasswordConfirm, setSignupPasswordConfirm] = useState('')
+  const [verifyCode, setVerifyCode] = useState('')
+  const [sentToHint, setSentToHint] = useState<string | null>(null)
+  const [cooldownSec, setCooldownSec] = useState(0)
   const [error, setError] = useState<string | null>(null)
   const [lottieData, setLottieData] = useState<LottieJson | null>(null)
   const lottieContainerRef = useRef<HTMLDivElement>(null)
   const googleBtnHostRef = useRef<HTMLDivElement>(null)
-  const [showPassword , setShowPassword] = useState<boolean>(false)
+  const panelStripRef = useRef<HTMLDivElement>(null)
+  const [showPassword, setShowPassword] = useState(false)
+  const [showSignupPassword, setShowSignupPassword] = useState(false)
+  const [showSignupPasswordConfirm, setShowSignupPasswordConfirm] = useState(false)
+  const [enableLottie, setEnableLottie] = useState(
+    () => typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches,
+  )
+
+  useLayoutEffect(() => {
+    const el = panelStripRef.current
+    if (!el) return
+    const idx = panel === 'login' ? 0 : panel === 'signup' ? 1 : 2
+    const reduce =
+      typeof window !== 'undefined' && window.matchMedia('(prefers-reduced-motion: reduce)').matches
+    gsap.to(el, {
+      xPercent: -idx * (100 / 3),
+      duration: reduce ? 0 : 0.45,
+      ease: 'power2.inOut',
+    })
+    return () => {
+      gsap.killTweensOf(el)
+    }
+  }, [panel])
 
   useEffect(() => {
+    const mq = window.matchMedia('(min-width: 768px)')
+    const onChange = () => setEnableLottie(mq.matches)
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+
+  useEffect(() => {
+    if (!enableLottie) {
+      setLottieData(null)
+      return
+    }
     let cancelled = false
     void import('../assets/animation_icons/login_ready.json').then((mod) => {
       if (!cancelled) setLottieData(mod.default as LottieJson)
@@ -29,7 +93,7 @@ export function Login() {
     return () => {
       cancelled = true
     }
-  }, [])
+  }, [enableLottie])
 
   useEffect(() => {
     if (!lottieData) return
@@ -54,6 +118,15 @@ export function Login() {
     }
   }, [lottieData])
 
+  const cooldownActive = cooldownSec > 0
+  useEffect(() => {
+    if (!cooldownActive) return
+    const id = window.setInterval(() => {
+      setCooldownSec((s) => (s <= 1 ? 0 : s - 1))
+    }, 1000)
+    return () => window.clearInterval(id)
+  }, [cooldownActive])
+
   const onGoogleCredential = useCallback(
     async (credential: string) => {
       setError(null)
@@ -71,7 +144,7 @@ export function Login() {
   useEffect(() => {
     const host = googleBtnHostRef.current
     const cid = googleClientId?.trim()
-    if (!host || !cid) return
+    if (!host || !cid || panel !== 'login') return
 
     let cancelled = false
     let cleanup: (() => void) | undefined
@@ -91,11 +164,12 @@ export function Login() {
       cancelled = true
       cleanup?.()
     }
-  }, [onGoogleCredential, t])
+  }, [onGoogleCredential, panel, t])
 
   const [loginBusy, setLoginBusy] = useState(false)
+  const [signupBusy, setSignupBusy] = useState(false)
 
-  async function onSubmit(e: FormEvent) {
+  async function onSubmitLogin(e: FormEvent) {
     e.preventDefault()
     setError(null)
     setLoginBusy(true)
@@ -104,26 +178,110 @@ export function Login() {
     if (result.ok === false) setError(result.message)
   }
 
+  async function onSubmitSignup(e: FormEvent) {
+    e.preventDefault()
+    setError(null)
+    const u = signupUsername.trim().toLowerCase()
+    if (!USERNAME_RE.test(u)) {
+      setError(t('selectRoleUsernameInvalid'))
+      return
+    }
+    if (signupPassword.length < 8) {
+      setError(t('selectRolePasswordHint'))
+      return
+    }
+    if (signupPassword !== signupPasswordConfirm) {
+      setError(t('selectRolePasswordMismatch'))
+      return
+    }
+    setSignupBusy(true)
+    const result = await sendEmailSignupCode(signupEmail, u, signupPassword)
+    setSignupBusy(false)
+    if (result.ok === false) {
+      if (result.retryAfter != null && result.retryAfter > 0) {
+        setCooldownSec(result.retryAfter)
+      } else {
+        setError(result.message)
+      }
+      return
+    }
+    setVerifyCode('')
+    if (result.sentTo) {
+      setSentToHint(t('roleVerificationSentTo').replace('{email}', result.sentTo))
+    }
+    setPanel('verify')
+  }
+
+  async function onSubmitVerify(e: FormEvent) {
+    e.preventDefault()
+    setError(null)
+    setSignupBusy(true)
+    const result = await verifyEmailSignup(signupEmail, verifyCode)
+    setSignupBusy(false)
+    if (result.ok === false) {
+      setError(result.message)
+      return
+    }
+    navigate('/select-role?step=3', { replace: true })
+  }
+
+  async function onResendVerify() {
+    if (cooldownSec > 0) return
+    setError(null)
+    setSignupBusy(true)
+    const result = await sendEmailSignupCode(
+      signupEmail,
+      signupUsername.trim().toLowerCase(),
+      signupPassword,
+      { force: true },
+    )
+    setSignupBusy(false)
+    if (result.ok === false) {
+      if (result.retryAfter != null && result.retryAfter > 0) {
+        setCooldownSec(result.retryAfter)
+      } else {
+        setError(result.message)
+      }
+      return
+    }
+    if (result.sentTo) {
+      setSentToHint(t('roleVerificationSentTo').replace('{email}', result.sentTo))
+    }
+  }
+
+  const panelTitle =
+    panel === 'login'
+      ? t('loginHeading')
+      : panel === 'signup'
+        ? t('signupEmailTitle')
+        : t('signupEmailVerifyTitle')
+
+  const panelSubtitle =
+    panel === 'login'
+      ? t('loginSubtitle')
+      : panel === 'signup'
+        ? t('signupWithEmailHint')
+        : t('signupEmailVerifySubtitle')
+
   return (
-    <div className="relative flex min-h-dvh flex-col items-center justify-center bg-white px-4 py-10 text-slate-800 sm:px-6 sm:py-12">
-      <div className="absolute right-4 top-4 z-20 sm:right-6 sm:top-6 md:right-8 md:top-8">
-        <LanguageToggle />
+    <div className="portal-shell relative flex min-h-dvh flex-col md:items-center md:justify-center md:px-4 md:py-10 lg:px-6 lg:py-12">
+      <div className="absolute right-3 top-3 z-20 flex items-center gap-2 pt-[env(safe-area-inset-top)] sm:right-6 sm:top-6 md:right-8 md:top-8 md:pt-0">
+        <ThemeToggle />
+        <LanguageToggle className="portal-input !w-auto !py-2 text-xs font-semibold" />
       </div>
 
-      <div className="relative z-10 w-full max-w-5xl">
-        <div className="rounded-3xl border border-slate-200 bg-white shadow-sm">
-          <div className="grid min-h-0 md:min-h-[min(560px,calc(100dvh-8rem))] md:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] md:items-stretch">
-            <aside className="flex min-h-[min(420px,50vh)] flex-col items-center justify-center border-b border-slate-200 bg-white px-6 py-10 text-center sm:px-8 md:min-h-0 md:border-b-0 md:border-r md:border-slate-200 md:px-10 md:py-12">
+      <div className="relative z-10 flex w-full min-h-dvh flex-col md:min-h-0 md:max-w-5xl">
+        <div className="portal-modal auth-login-modal flex min-h-dvh flex-1 flex-col rounded-none shadow-none max-md:border-0 md:min-h-0 md:rounded-3xl md:shadow-sm">
+          <div className="grid min-h-0 flex-1 md:min-h-[min(560px,calc(100dvh-8rem))] md:grid-cols-[minmax(0,1.05fr)_minmax(0,1fr)] md:items-stretch">
+            <aside className="auth-login-panel portal-border hidden min-h-0 flex-col items-center justify-center border-b px-6 py-10 text-center sm:px-8 md:flex md:border-b-0 md:border-r md:px-10 md:py-12">
               <div className="flex w-full max-w-md flex-col items-center">
                 <p className="mb-2 text-[11px] font-semibold uppercase tracking-[0.22em] text-violet-600">
                   {t('loginBrand')}
                 </p>
-                <h1 className="mb-3 max-w-sm text-2xl font-semibold tracking-tight text-slate-900 md:text-[1.65rem] md:leading-snug">
+                <h1 className="portal-heading mb-3 max-w-sm text-2xl font-semibold tracking-tight md:text-[1.65rem] md:leading-snug">
                   {t('loginTitleAside')}
                 </h1>
-                <p className="max-w-sm text-sm leading-relaxed text-slate-600">
-                  {t('loginIntroAside')}
-                </p>
+                <p className="portal-body max-w-sm text-sm leading-relaxed">{t('loginIntroAside')}</p>
 
                 <div className="mt-8 flex w-full max-w-[min(100%,340px)] justify-center sm:mt-10">
                   {lottieData ? (
@@ -134,7 +292,7 @@ export function Login() {
                     />
                   ) : (
                     <div
-                      className="aspect-square w-full max-w-[260px] animate-pulse rounded-3xl bg-slate-100 ring-1 ring-slate-200/80"
+                      className="aspect-square w-full max-w-[260px] animate-pulse rounded-3xl bg-slate-100 ring-1 ring-slate-200/80 dark:bg-slate-800 dark:ring-slate-700"
                       aria-hidden
                     />
                   )}
@@ -142,120 +300,312 @@ export function Login() {
               </div>
             </aside>
 
-            <div className="flex flex-col justify-center bg-white px-6 py-10 sm:px-8 md:px-11 md:py-12">
+            <div className="auth-login-panel flex min-h-0 flex-1 flex-col justify-center px-4 py-8 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-14 sm:px-6 sm:py-10 md:px-11 md:py-12 md:pt-12">
               <div className="mx-auto w-full max-w-md">
-                <div className="mb-8 text-center md:text-left">
-                  <h2 className="text-2xl font-semibold tracking-tight text-slate-900">{t('loginHeading')}</h2>
-                  <p className="mt-2 text-sm leading-relaxed text-slate-500">{t('loginSubtitle')}</p>
+                <div className="mb-6 text-center md:mb-8 md:text-left">
+                  <h2 className="portal-heading text-2xl font-semibold tracking-tight">{panelTitle}</h2>
+                  <p className="portal-muted mt-2 text-sm leading-relaxed">{panelSubtitle}</p>
                 </div>
 
-                <form className="space-y-5" onSubmit={onSubmit} noValidate>
                 {error ? (
                   <div
-                    className="rounded-xl border border-red-200/80 bg-red-50 px-4 py-3 text-sm text-red-800 shadow-sm"
+                    className="mb-4 rounded-xl border border-red-200/80 bg-red-50 px-4 py-3 text-sm text-red-800 shadow-sm dark:border-red-900/50 dark:bg-red-950/40 dark:text-red-200"
                     role="alert"
                   >
                     {error}
                   </div>
                 ) : null}
 
-                <label className="block space-y-2">
-                  <span className="text-sm font-medium text-slate-700">{t('loginUsername')}</span>
-                  <input
-                    name="username"
-                    autoComplete="username"
-                    value={username}
-                    onChange={(e) => setUsername(e.target.value)}
-                    placeholder={t('loginUsernamePlaceholder')}
-                    required
-                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm outline-none ring-violet-200/60 transition placeholder:text-slate-400 focus:border-violet-400 focus:ring-4"
-                  />
-                </label>
+                <div className="overflow-hidden pb-1">
+                  <div ref={panelStripRef} className="flex w-[300%] will-change-transform">
+                    {/* Login */}
+                    <section className="box-border w-1/3 shrink-0 pr-2">
+                      <form className="space-y-5" onSubmit={onSubmitLogin} noValidate>
+                        <label className="block space-y-2">
+                          <span className="portal-subheading text-sm font-medium">{t('loginUsername')}</span>
+                          <input
+                            name="username"
+                            autoComplete="username"
+                            value={username}
+                            onChange={(e) => setUsername(e.target.value)}
+                            placeholder={t('loginUsernamePlaceholder')}
+                            required
+                            className="portal-input rounded-xl px-4 py-3 text-sm focus:ring-4"
+                          />
+                        </label>
 
-                <label className="block space-y-2">
-                  <span className="text-sm font-medium text-slate-700">{t('loginPassword')}</span>
-                  <div className='flex flex-row'>
-                  <input
-                    name="password"
-                    type={showPassword ? "text": "password"}
-                    autoComplete="current-password"
-                    value={password}
-                    onChange={(e) => setPassword(e.target.value)}
-                    placeholder="••••••••"
-                    required
-                    className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-900 shadow-sm outline-none ring-violet-200/60 transition placeholder:text-slate-400 focus:border-violet-400 focus:ring-4"
-                  />
-                  <button
-                  type='button'
-                  onClick={() => setShowPassword(!showPassword)}
-                  style={{
-                    position: 'absolute',
-                    transform: 'translateY(-50)',
-                    right: 50,
-              
-                  }}
-                  >
-                    {showPassword? 'Hide' : 'Show'}
-                  </button>
+                        <label className="block space-y-2">
+                          <span className="portal-subheading text-sm font-medium">{t('loginPassword')}</span>
+                          <div className="relative">
+                            <input
+                              name="password"
+                              type={showPassword ? 'text' : 'password'}
+                              autoComplete="current-password"
+                              value={password}
+                              onChange={(e) => setPassword(e.target.value)}
+                              placeholder="••••••••"
+                              required
+                              className="portal-input w-full rounded-xl py-3 pl-4 pr-11 text-sm focus:ring-4"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowPassword((v) => !v)}
+                              className="absolute inset-y-0 right-0 flex w-11 items-center justify-center rounded-r-xl text-slate-400 transition hover:bg-primary-light hover:text-primary focus-visible:ring-primary/40"
+                              aria-label={showPassword ? t('loginHidePassword') : t('loginShowPassword')}
+                              aria-pressed={showPassword}
+                            >
+                              {showPassword ? (
+                                <FiEyeOff className="h-5 w-5" aria-hidden />
+                              ) : (
+                                <FiEye className="h-5 w-5" aria-hidden />
+                              )}
+                            </button>
+                          </div>
+                        </label>
+
+                        <button
+                          type="submit"
+                          disabled={loginBusy}
+                          className="w-full rounded-xl bg-linear-to-r from-primary to-primary-hover px-4 py-3.5 text-sm font-semibold text-white shadow-md shadow-primary/25 outline-none transition hover:from-primary-hover hover:to-primary focus-visible:ring-4 focus-visible:ring-violet-300 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {loginBusy ? t('loadingData') : t('loginSubmit')}
+                        </button>
+                      </form>
+
+                      <div className="relative my-8">
+                        <div className="absolute inset-0 flex items-center" aria-hidden="true">
+                          <div className="portal-border w-full border-t" />
+                        </div>
+                        <div className="relative flex justify-center">
+                          <span className="portal-surface px-4 text-xs font-semibold uppercase tracking-wider portal-muted">
+                            {t('orDivider')}
+                          </span>
+                        </div>
+                      </div>
+
+                      <div className="space-y-3">
+                        {googleClientId ? (
+                          <div
+                            className="portal-card-sm relative w-full overflow-visible transition hover:border-slate-300 hover:shadow-md dark:hover:border-slate-600"
+                            role="group"
+                            aria-label={t('googleSignIn')}
+                          >
+                            <div className="pointer-events-none flex min-h-[52px] w-full items-center justify-center gap-3 px-4 py-3">
+                              <FcGoogle className="h-7 w-7 shrink-0" aria-hidden />
+                              <span className="portal-heading text-sm font-semibold tracking-tight">
+                                {t('googleSignIn')}
+                              </span>
+                            </div>
+                            <div
+                              ref={googleBtnHostRef}
+                              className="absolute inset-0 z-10 flex items-center justify-center opacity-[0.02] [&>div]:flex [&>div]:min-h-[52px] [&>div]:w-full [&>div]:max-w-full [&>div]:items-center [&>div]:justify-center [&_iframe]:mx-auto"
+                              aria-hidden
+                            />
+                          </div>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled
+                            className="portal-card-sm flex w-full min-h-[52px] cursor-not-allowed items-center justify-center gap-3 portal-surface-muted px-4 py-3 text-left opacity-90"
+                            aria-label={t('googleSignIn')}
+                          >
+                            <FcGoogle className="h-7 w-7 shrink-0 opacity-80" aria-hidden />
+                            <span className="text-sm font-semibold tracking-tight text-slate-600">
+                              {t('googleSignIn')}
+                            </span>
+                          </button>
+                        )}
+                        {!googleClientId ? (
+                          <p className="text-center text-xs leading-relaxed text-amber-800/90 dark:text-amber-200">
+                            {t('googleNotConfigured')}
+                          </p>
+                        ) : null}
+
+                        <p className="pt-1 text-center text-sm">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setError(null)
+                              setPanel('signup')
+                            }}
+                            className="font-semibold text-primary hover:text-primary-hover hover:underline"
+                          >
+                            {t('signupWithEmail')}
+                          </button>
+                        </p>
+                      </div>
+                    </section>
+
+                    {/* Sign up */}
+                    <section className="box-border w-1/3 shrink-0 px-1">
+                      <form className="space-y-4" onSubmit={onSubmitSignup} noValidate>
+                        <label className="block space-y-2">
+                          <span className="portal-subheading text-sm font-medium">{t('signupEmailLabel')}</span>
+                          <input
+                            type="email"
+                            autoComplete="email"
+                            value={signupEmail}
+                            onChange={(e) => setSignupEmail(e.target.value)}
+                            placeholder={t('signupEmailPlaceholder')}
+                            required
+                            className="portal-input rounded-xl px-4 py-3 text-sm focus:ring-4"
+                          />
+                        </label>
+
+                        <label className="block space-y-2">
+                          <span className="portal-subheading text-sm font-medium">{t('selectRoleUsernameLabel')}</span>
+                          <input
+                            type="text"
+                            autoComplete="username"
+                            value={signupUsername}
+                            onChange={(e) =>
+                              setSignupUsername(e.target.value.toLowerCase().replace(/[^a-z0-9_]/g, ''))
+                            }
+                            placeholder={t('selectRoleUsernamePlaceholder')}
+                            maxLength={32}
+                            required
+                            className="portal-input rounded-xl px-4 py-3 font-mono text-sm focus:ring-4"
+                          />
+                        </label>
+
+                        <label className="block space-y-2">
+                          <span className="portal-subheading text-sm font-medium">{t('selectRolePasswordLabel')}</span>
+                          <div className="relative">
+                            <input
+                              type={showSignupPassword ? 'text' : 'password'}
+                              autoComplete="new-password"
+                              value={signupPassword}
+                              onChange={(e) => setSignupPassword(e.target.value)}
+                              required
+                              className="portal-input w-full rounded-xl py-3 pl-4 pr-11 text-sm focus:ring-4"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowSignupPassword((v) => !v)}
+                              className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-slate-400"
+                              aria-label={showSignupPassword ? t('loginHidePassword') : t('loginShowPassword')}
+                            >
+                              {showSignupPassword ? <FiEyeOff className="h-5 w-5" /> : <FiEye className="h-5 w-5" />}
+                            </button>
+                          </div>
+                        </label>
+
+                        <label className="block space-y-2">
+                          <span className="portal-subheading text-sm font-medium">
+                            {t('selectRolePasswordConfirmLabel')}
+                          </span>
+                          <div className="relative">
+                            <input
+                              type={showSignupPasswordConfirm ? 'text' : 'password'}
+                              autoComplete="new-password"
+                              value={signupPasswordConfirm}
+                              onChange={(e) => setSignupPasswordConfirm(e.target.value)}
+                              required
+                              className="portal-input w-full rounded-xl py-3 pl-4 pr-11 text-sm focus:ring-4"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setShowSignupPasswordConfirm((v) => !v)}
+                              className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-slate-400"
+                              aria-label={
+                                showSignupPasswordConfirm ? t('loginHidePassword') : t('loginShowPassword')
+                              }
+                            >
+                              {showSignupPasswordConfirm ? (
+                                <FiEyeOff className="h-5 w-5" />
+                              ) : (
+                                <FiEye className="h-5 w-5" />
+                              )}
+                            </button>
+                          </div>
+                        </label>
+
+                        <button
+                          type="submit"
+                          disabled={signupBusy}
+                          className="w-full rounded-xl bg-linear-to-r from-primary to-primary-hover px-4 py-3.5 text-sm font-semibold text-white shadow-md shadow-primary/25 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {signupBusy ? t('loadingData') : t('signupEmailSubmit')}
+                        </button>
+                      </form>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setError(null)
+                          setPanel('login')
+                        }}
+                        className="mt-4 text-sm font-medium text-primary hover:underline"
+                      >
+                        {t('signupEmailBackToLogin')}
+                      </button>
+                    </section>
+
+                    {/* Verify code */}
+                    <section className="box-border w-1/3 shrink-0 pl-2">
+                      {sentToHint ? (
+                        <p className="mb-3 text-xs text-emerald-700 dark:text-emerald-300">{sentToHint}</p>
+                      ) : null}
+                      {cooldownSec > 0 ? (
+                        <p className="mb-3 text-xs font-medium text-amber-800 dark:text-amber-200">
+                          {t('roleVerificationCooldown').replace(
+                            '{time}',
+                            formatVerificationCooldownDuration(cooldownSec),
+                          )}
+                        </p>
+                      ) : null}
+
+                      <form className="space-y-4" onSubmit={onSubmitVerify} noValidate>
+                        <label className="block space-y-2">
+                          <span className="portal-subheading text-sm font-medium">{t('roleVerificationLabel')}</span>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            autoComplete="one-time-code"
+                            maxLength={6}
+                            value={verifyCode}
+                            onChange={(e) => setVerifyCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                            placeholder="000000"
+                            className="portal-input w-full rounded-xl px-4 py-3 font-mono text-base tracking-widest focus:ring-4"
+                          />
+                        </label>
+
+                        <button
+                          type="button"
+                          onClick={() => void onResendVerify()}
+                          disabled={signupBusy || cooldownSec > 0}
+                          className="text-xs font-medium text-primary underline-offset-2 hover:underline disabled:cursor-not-allowed disabled:opacity-50"
+                        >
+                          {cooldownSec > 0
+                            ? t('roleVerificationResendWait').replace(
+                                '{time}',
+                                formatVerificationCooldownDuration(cooldownSec),
+                              )
+                            : t('roleVerificationResend')}
+                        </button>
+
+                        <button
+                          type="submit"
+                          disabled={signupBusy}
+                          className="w-full rounded-xl bg-linear-to-r from-primary to-primary-hover px-4 py-3.5 text-sm font-semibold text-white shadow-md shadow-primary/25 disabled:cursor-not-allowed disabled:opacity-60"
+                        >
+                          {signupBusy ? t('loadingData') : t('signupEmailContinue')}
+                        </button>
+                      </form>
+
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setError(null)
+                          setPanel('signup')
+                        }}
+                        className="mt-4 text-sm font-medium text-primary hover:underline"
+                      >
+                        {t('selectRoleBack')}
+                      </button>
+                    </section>
                   </div>
-                </label>
-
-                <button
-                  type="submit"
-                  disabled={loginBusy}
-                  className="w-full rounded-xl bg-linear-to-r from-violet-600 to-violet-500 px-4 py-3.5 text-sm font-semibold text-white shadow-md shadow-violet-500/25 outline-none transition hover:from-violet-500 hover:to-violet-400 focus-visible:ring-4 focus-visible:ring-violet-300 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {loginBusy ? t('loadingData') : t('loginSubmit')}
-                </button>
-              </form>
-
-              <div className="relative my-10">
-                <div className="absolute inset-0 flex items-center" aria-hidden="true">
-                  <div className="w-full border-t border-slate-200" />
                 </div>
-                <div className="relative flex justify-center">
-                  <span className="bg-white px-4 text-xs font-semibold uppercase tracking-wider text-slate-400">
-                    {t('orDivider')}
-                  </span>
-                </div>
-              </div>
-
-              <div className="space-y-3">
-                {googleClientId ? (
-                  <div
-                    className="relative w-full overflow-visible rounded-xl border border-slate-200 bg-white shadow-sm transition hover:border-slate-300 hover:shadow-md"
-                    role="group"
-                    aria-label={t('googleSignIn')}
-                  >
-                    <div className="pointer-events-none flex min-h-[52px] w-full items-center justify-center gap-3 px-4 py-3">
-                      <FcGoogle className="h-7 w-7 shrink-0" aria-hidden />
-                      <span className="text-sm font-semibold tracking-tight text-slate-800">
-                        {t('googleSignIn')}
-                      </span>
-                    </div>
-                    <div
-                      ref={googleBtnHostRef}
-                      className="absolute inset-0 z-10 flex items-center justify-center opacity-[0.02] [&>div]:flex [&>div]:min-h-[52px] [&>div]:w-full [&>div]:max-w-full [&>div]:items-center [&>div]:justify-center [&_iframe]:mx-auto"
-                      aria-hidden
-                    />
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    disabled
-                    className="flex w-full min-h-[52px] cursor-not-allowed items-center justify-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-left opacity-90 shadow-sm"
-                    aria-label={t('googleSignIn')}
-                  >
-                    <FcGoogle className="h-7 w-7 shrink-0 opacity-80" aria-hidden />
-                    <span className="text-sm font-semibold tracking-tight text-slate-600">
-                      {t('googleSignIn')}
-                    </span>
-                  </button>
-                )}
-                {!googleClientId ? (
-                  <p className="text-center text-xs leading-relaxed text-amber-800/90">{t('googleNotConfigured')}</p>
-                ) : null}
-              </div>
               </div>
             </div>
           </div>

@@ -1,10 +1,15 @@
 import type { BuyerRecord } from '../types/workflow'
+import { agreementFileNamesFromRecord } from './agreementFiles'
+import { formulaFormFileNamesFromInvoice } from './formulaFormFiles'
 
 const API_BASE_URL = (import.meta.env.VITE_API_URL as string | undefined) ?? 'http://localhost:3000'
 
 export type ArchiveFileKind = 'stamped-paper' | 'formula-form' | 'agreement'
 
-function filePathForKind(recordId: string, kind: ArchiveFileKind) {
+function filePathForKind(recordId: string, kind: ArchiveFileKind, fileIndex = 0) {
+  if ((kind === 'formula-form' || kind === 'agreement') && fileIndex > 0) {
+    return `${API_BASE_URL}/api/records/${encodeURIComponent(recordId)}/files/${kind}/${fileIndex}`
+  }
   return `${API_BASE_URL}/api/records/${encodeURIComponent(recordId)}/files/${kind}`
 }
 
@@ -37,16 +42,25 @@ function safeFileSegment(name: string, fallback: string) {
   return trimmed.replace(/[/\\?%*:|"<>]/g, '_')
 }
 
-export function defaultDownloadFileName(record: BuyerRecord, kind: ArchiveFileKind): string {
+export function defaultDownloadFileName(
+  record: BuyerRecord,
+  kind: ArchiveFileKind,
+  fileIndex = 0,
+): string {
   const base = safeFileSegment(record.vendorCode || record.id, 'record')
   if (kind === 'stamped-paper') {
     return safeFileSegment(record.stampedPaperFileName ?? '', `${base}_stamped_paper.pdf`) || `${base}_stamped_paper.pdf`
   }
   if (kind === 'formula-form') {
-    const n = record.invoice?.formulaFormFileName
-    return safeFileSegment(n ?? '', `${base}_formula_form.pdf`) || `${base}_formula_form.pdf`
+    const names = formulaFormFileNamesFromInvoice(record.invoice)
+    const n = names[fileIndex] ?? names[0]
+    const suffix = names.length > 1 ? `_additional_${fileIndex + 1}` : '_formula_form'
+    return safeFileSegment(n ?? '', `${base}${suffix}.pdf`) || `${base}${suffix}.pdf`
   }
-  return safeFileSegment(record.agreementFileName ?? '', `${base}_agreement.pdf`) || `${base}_agreement.pdf`
+  const agreementNames = agreementFileNamesFromRecord(record)
+  const an = agreementNames[fileIndex] ?? agreementNames[0]
+  const agreementSuffix = agreementNames.length > 1 ? `_agreement_${fileIndex + 1}` : '_agreement'
+  return safeFileSegment(an ?? '', `${base}${agreementSuffix}.pdf`) || `${base}${agreementSuffix}.pdf`
 }
 
 /**
@@ -58,12 +72,13 @@ export async function downloadRecordFileFromApi(opts: {
   kind: ArchiveFileKind
   authToken: string | null
   fallbackFileName: string
+  fileIndex?: number
 }): Promise<void> {
-  const { recordId, kind, authToken, fallbackFileName } = opts
+  const { recordId, kind, authToken, fallbackFileName, fileIndex = 0 } = opts
   const headers: Record<string, string> = {}
   if (authToken) headers.Authorization = `Bearer ${authToken}`
 
-  const res = await fetch(filePathForKind(recordId, kind), { method: 'GET', headers })
+  const res = await fetch(filePathForKind(recordId, kind, fileIndex), { method: 'GET', headers })
   if (!res.ok) {
     throw new Error(`Download failed: ${res.status}`)
   }
@@ -86,8 +101,8 @@ export function downloadPublishedRecordTextSummary(record: BuyerRecord, locale: 
           `Diarsipkan: ${record.archivedAt ?? '-'}`,
           `Diterbitkan: ${record.publishedAt ?? '-'}`,
           `Berkas kertas bermaterai: ${record.stampedPaperFileName ?? '-'}`,
-          `Berkas perjanjian: ${record.agreementFileName ?? '-'}`,
-          `Formula form: ${record.invoice?.formulaFormFileName ?? '-'}`,
+          `Berkas perjanjian: ${agreementFileNamesFromRecord(record).join(', ') || '-'}`,
+          `Additional document: ${formulaFormFileNamesFromInvoice(record.invoice).join(', ') || '-'}`,
           '',
           'Unggah ulang dari API untuk unduh berkas biner asli.',
         ]
@@ -99,8 +114,8 @@ export function downloadPublishedRecordTextSummary(record: BuyerRecord, locale: 
           `Archived: ${record.archivedAt ?? '-'}`,
           `Published: ${record.publishedAt ?? '-'}`,
           `Stamped paper file: ${record.stampedPaperFileName ?? '-'}`,
-          `Agreement file: ${record.agreementFileName ?? '-'}`,
-          `Formula form: ${record.invoice?.formulaFormFileName ?? '-'}`,
+          `Agreement file: ${agreementFileNamesFromRecord(record).join(', ') || '-'}`,
+          `Additional document: ${formulaFormFileNamesFromInvoice(record.invoice).join(', ') || '-'}`,
           '',
           'Connect to the API to download original binary files.',
         ]

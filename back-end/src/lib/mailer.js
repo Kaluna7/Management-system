@@ -1,12 +1,20 @@
 const nodemailer = require("nodemailer");
 
+const HOSTINGER_DEFAULT_HOST = "smtp.hostinger.com";
 const BREVO_DEFAULT_HOST = "smtp-relay.brevo.com";
 /** Transaksi satu-per-satu (kode OTP, dll.). Bukan Email Campaigns API (/emailCampaigns). */
 const BREVO_TRANSACTIONAL_URL = "https://api.brevo.com/v3/smtp/email";
 
 function trimEnv(v) {
   if (v == null || typeof v !== "string") return "";
-  return v.trim();
+  let t = v.trim();
+  if (
+    (t.startsWith('"') && t.endsWith('"')) ||
+    (t.startsWith("'") && t.endsWith("'"))
+  ) {
+    t = t.slice(1, -1).trim();
+  }
+  return t;
 }
 
 /** v3 API key (xkeysib-…) — sama key untuk REST; bukan xsmtpsib (SMTP). */
@@ -33,7 +41,7 @@ function resolveSmtpConfig() {
     trimEnv(process.env.BREVO_SMTP_PASSWORD);
   let host = trimEnv(process.env.SMTP_HOST);
   if (!host && user && pass) {
-    host = BREVO_DEFAULT_HOST;
+    host = HOSTINGER_DEFAULT_HOST;
   }
   const from = trimEnv(process.env.SMTP_FROM);
   const port = Number(trimEnv(String(process.env.SMTP_PORT))) || 587;
@@ -42,22 +50,58 @@ function resolveSmtpConfig() {
   return { host, from, user, pass, port, secure };
 }
 
-/** Verified sender for API: SMTP_FROM "Name <email>" atau BREVO_SENDER_EMAIL saja */
+/** Verified sender: SMTP_FROM "Name <email>", plain email, or fallback to SMTP_USER mailbox. */
 function getSenderFromEnv() {
+  const smtpUser =
+    trimEnv(process.env.SMTP_USER) ||
+    trimEnv(process.env.BREVO_SMTP_LOGIN) ||
+    trimEnv(process.env.BREVO_LOGIN);
   const combined = trimEnv(process.env.SMTP_FROM);
   const emailOnly = trimEnv(process.env.BREVO_SENDER_EMAIL);
   const raw = combined || emailOnly;
-  if (!raw) return null;
+  if (!raw) {
+    if (smtpUser.includes("@")) return { name: "Finly", email: smtpUser };
+    return null;
+  }
   const m = /^(.+?)\s*<([^>]+)>\s*$/.exec(raw);
   if (m) {
-    const name = m[1].replace(/^["']|["']$/g, "").trim() || "WHSmith";
-    return { name, email: m[2].trim() };
+    const name = m[1].replace(/^["']|["']$/g, "").trim() || "Finly";
+    const email = m[2].trim();
+    if (email.includes("@")) return { name, email };
   }
   if (raw.includes("@")) {
     const local = raw.split("@")[0];
-    return { name: local || "WHSmith", email: raw };
+    return { name: local || "Finly", email: raw };
+  }
+  // SMTP_FROM is a display label or bare domain — use SMTP_USER mailbox as From address
+  if (smtpUser.includes("@")) {
+    const name = raw.replace(/^["']|["']$/g, "").trim() || "Finly";
+    return { name, email: smtpUser };
   }
   return null;
+}
+
+/** Nodemailer `from` header: `Finly <mailbox@domain.com>` */
+function formatSmtpFromHeader() {
+  const sender = getSenderFromEnv();
+  if (!sender?.email) {
+    const { user, from } = resolveSmtpConfig();
+    if (user.includes("@")) return user;
+    return from || user;
+  }
+  if (sender.name && sender.name !== sender.email) {
+    return `${sender.name} <${sender.email}>`;
+  }
+  return sender.email;
+}
+
+/** Untuk console: `no-reply <3u6kdfpk@kpu.anonaddy.com>` */
+function formatSenderForLog(sender) {
+  if (!sender?.email) return "(belum di-set — isi SMTP_FROM di .env)";
+  if (sender.name && sender.name !== sender.email) {
+    return `${sender.name} <${sender.email}>`;
+  }
+  return sender.email;
 }
 
 function brevoApiConfigured() {
@@ -67,10 +111,9 @@ function brevoApiConfigured() {
 }
 
 function smtpTransportConfigured() {
-  const { host, from, user, pass } = resolveSmtpConfig();
-  if (!host || !from) return false;
-  if (user || pass) return Boolean(user && pass);
-  return true;
+  const { host, user, pass } = resolveSmtpConfig();
+  if (!host || !(user && pass)) return false;
+  return Boolean(getSenderFromEnv()?.email);
 }
 
 /** True jika bisa kirim email (REST API Brevo atau SMTP lengkap). */
@@ -90,24 +133,17 @@ function smtpFromLooksLikeBrevoLogin(email) {
 
 function emailMissingHint() {
   if (emailConfigured()) return null;
-  if (!getBrevoApiKey()) {
-    return (
-      "Email not configured. Recommended (tanpa blokir IP SMTP): set BREVO_API_KEY (API key v3 dari Brevo → Settings → API keys) dan SMTP_FROM atau BREVO_SENDER_EMAIL. " +
-      "Alternatif: lengkapi SMTP_* seperti di .env.example."
-    );
-  }
   if (!getSenderFromEnv()) {
-    return "Set SMTP_FROM or BREVO_SENDER_EMAIL to a Brevo-verified sender address.";
+    return 'Set SMTP_FROM to your mailbox, e.g. SMTP_FROM="Finly <noreply@yourdomain.com>"';
   }
-  const { host, from, user, pass } = resolveSmtpConfig();
+  const { host, user, pass } = resolveSmtpConfig();
   const missing = [];
   if (!host) missing.push("SMTP_HOST");
-  if (!from) missing.push("SMTP_FROM");
   if (user && !pass) missing.push("SMTP_PASS");
   if (!user && pass) missing.push("SMTP_USER");
   if (!user && !pass) missing.push("SMTP_USER + SMTP_PASS");
   if (missing.length === 0) return null;
-  return `SMTP incomplete: ${missing.join("; ")}. See .env.example.`;
+  return `SMTP incomplete: ${missing.join("; ")}. See .env.example (Hostinger: smtp.hostinger.com).`;
 }
 
 /** Back-compat */
@@ -139,6 +175,7 @@ async function sendViaBrevoApi(opts) {
     return { ok: false, skipped: true, reason: "Missing SMTP_FROM / BREVO_SENDER_EMAIL for API sender" };
   }
   const to = opts.to.filter(Boolean);
+  console.info("[mailer] Brevo API | From:", formatSenderForLog(sender));
   const res = await fetch(BREVO_TRANSACTIONAL_URL, {
     method: "POST",
     headers: {
@@ -206,7 +243,7 @@ async function sendViaSmtpMail(opts) {
   if (to.length === 0) {
     return { ok: false, skipped: true, reason: "No recipients" };
   }
-  const { from } = resolveSmtpConfig();
+  const from = formatSmtpFromHeader();
   const sender = getSenderFromEnv();
   if (sender?.email && smtpFromLooksLikeBrevoLogin(sender.email)) {
     console.warn(
@@ -222,7 +259,12 @@ async function sendViaSmtpMail(opts) {
       text: opts.text,
       html: opts.html,
     });
-    console.info("[mailer] SMTP sent OK →", to.join(", "));
+    console.info(
+      "[mailer] SMTP sent OK | From:",
+      formatSenderForLog(sender) || from,
+      "→ To:",
+      to.join(", "),
+    );
     return { ok: true, via: "smtp", messageId: null };
   } catch (e) {
     console.error("[mailer] SMTP sendMail failed:", e);
@@ -230,6 +272,10 @@ async function sendViaSmtpMail(opts) {
     const responseCode = e?.responseCode;
     const response = e?.response;
     if (response) reason = `${reason} | ${String(response).slice(0, 500)}`;
+    if (e?.code === "EAUTH" || responseCode === 535) {
+      reason +=
+        " — Check SMTP_USER (full email), SMTP_PASS (quote in .env if it contains # or spaces), and mailbox password in Hostinger hPanel.";
+    }
     const low = reason.toLowerCase();
     if (
       responseCode === 525 ||
@@ -288,11 +334,22 @@ async function sendHtmlMail(opts) {
     };
   }
 
+  const sender = getSenderFromEnv();
+  const smtpFromEnv =
+    trimEnv(process.env.SMTP_FROM) || trimEnv(process.env.BREVO_SENDER_EMAIL) || "(kosong)";
+  console.info(
+    "[mailer] From:",
+    formatSenderForLog(sender),
+    `| env SMTP_FROM=${smtpFromEnv}`,
+    "→ To:",
+    to.join(", "),
+    opts.subject ? `| "${opts.subject}"` : "",
+  );
+
   if (!getBrevoApiKey() && smtpTransportConfigured() && !loggedMissingApiKey) {
     loggedMissingApiKey = true;
-    console.warn(
-      "[mailer] BREVO_API_KEY kosong — hanya SMTP yang dipakai. Isi BREVO_API_KEY (xkeysib-…) + Authorized IPs untuk API; atau pastikan SMTP tidak error 525/IP.",
-    );
+    const { host } = resolveSmtpConfig();
+    console.info(`[mailer] Using SMTP only (${host || HOSTINGER_DEFAULT_HOST}).`);
   }
 
   const apiReady = brevoApiConfigured();
@@ -352,8 +409,20 @@ async function sendHtmlMail(opts) {
   };
 }
 
+function logConfiguredSender() {
+  const sender = getSenderFromEnv();
+  const smtpFromEnv =
+    trimEnv(process.env.SMTP_FROM) || trimEnv(process.env.BREVO_SENDER_EMAIL) || "(kosong)";
+  console.info(
+    "[mailer] configured sender:",
+    formatSenderForLog(sender),
+    `| env SMTP_FROM=${smtpFromEnv}`,
+  );
+}
+
 module.exports = {
   smtpConfigured,
   smtpMissingHint,
   sendHtmlMail,
+  logConfiguredSender,
 };

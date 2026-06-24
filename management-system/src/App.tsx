@@ -1,5 +1,7 @@
 import { AuthProvider, useAuth } from './context/AuthContext'
 import { LanguageProvider } from './context/LanguageContext'
+import { ThemeProvider } from './context/ThemeContext'
+import { RealtimeProvider } from './context/RealtimeContext'
 import { WorkflowProvider } from './context/WorkflowContext'
 import { PortalDashboard } from './pages/PortalDashboard'
 import { Login } from './pages/Login'
@@ -20,11 +22,16 @@ function SelectRoleRoute() {
   return <SelectRole />
 }
 
+function EmailSignupRoute() {
+  return <Navigate to="/login" replace />
+}
+
 function AppRoutes() {
   const { user, pendingGoogle } = useAuth()
   return (
     <Routes>
       <Route path="/login" element={<LoginRoute />} />
+      <Route path="/signup-email" element={<EmailSignupRoute />} />
       <Route path="/select-role" element={<SelectRoleRoute />} />
       <Route
         path="/dashboard/*"
@@ -46,13 +53,17 @@ function AppRoutes() {
 export default function App() {
   return (
     <BrowserRouter>
-      <LanguageProvider>
-        <AuthProvider>
-          <WorkflowProvider>
-            <AppRoutes />
-          </WorkflowProvider>
-        </AuthProvider>
-      </LanguageProvider>
+      <ThemeProvider>
+        <LanguageProvider>
+          <AuthProvider>
+            <RealtimeProvider>
+              <WorkflowProvider>
+                <AppRoutes />
+              </WorkflowProvider>
+            </RealtimeProvider>
+          </AuthProvider>
+        </LanguageProvider>
+      </ThemeProvider>
     </BrowserRouter>
   )
 }

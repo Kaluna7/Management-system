@@ -63,6 +63,15 @@ async function insertUserFromGoogle({ username, googleSub, email, displayName })
   return findUserById(id);
 }
 
+async function insertUserFromEmail({ username, email, displayName }) {
+  const id = randomUUID();
+  await prisma.$executeRaw`
+    INSERT INTO "User" (id, username, email, "displayName", role, "createdAt", "updatedAt")
+    VALUES (${id}, ${username}, ${email}, ${displayName}, NULL, NOW(), NOW())
+  `;
+  return findUserById(id);
+}
+
 async function linkGoogleAccount({ userId, googleSub, email, displayName }) {
   await prisma.$executeRaw`
     UPDATE "User"
@@ -80,5 +89,6 @@ module.exports = {
   findUserByEmail,
   findUserById,
   insertUserFromGoogle,
+  insertUserFromEmail,
   linkGoogleAccount,
 };

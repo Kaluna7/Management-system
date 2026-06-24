@@ -28,8 +28,71 @@ model User {
    * 0 = default (1 min; >3 resends → 30 min). 2 = user failed code after heavy resend → 1 h lock.
    */
   roleVerifyCooldownTier Int @default(0)
+  /** Forgot-password flow (account settings). */
+  passwordResetCodeHash       String?
+  passwordResetExpires        DateTime?
+  passwordResetLastSentAt     DateTime?
+  passwordResetResendCount    Int       @default(0)
+  passwordResetCooldownTier   Int       @default(0)
+  /** Set after code verify; allows POST confirm within window. */
+  passwordResetVerifiedUntil  DateTime?
+  /** Preset avatar id "01"–"15", or null when using custom upload. */
+  avatarPreset          String?
+  /** Stored file name under storage/profiles/{userId}/ */
+  profileImageFileName  String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+/** Master vendor list (code + name). Populate via SQL/Prisma Studio — not seeded in app. */
+model Vendor {
+  id        String   @id @default(cuid())
+  code      String   @unique
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+/** Saved memo lines for finance invoice form (dropdown + add new). */
+model InvoiceMemoOption {
+  id        String   @id @default(cuid())
+  label     String
+  /** rebate_bonus_tier | custom — rebate line uses current year on print. */
+  template  String   @default("custom")
+  /** buyers | finance — dropdown scoped per portal department */
+  createdByRole String @default("finance")
+  sortOrder Int      @default(100)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([label, template, createdByRole])
+}
+
+/** Saved bank transfer details for finance invoice form (dropdown + add new). */
+model InvoiceBankAccount {
+  id              String   @id @default(cuid())
+  beneficiaryName String
+  bankName        String
+  bankBranch      String
+  accountNo       String
+  /** buyers | finance */
+  createdByRole   String @default("finance")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@unique([beneficiaryName, bankName, bankBranch, accountNo, createdByRole])
+}
+
+/** Saved invoice signatories: job title + person name (dropdown + add new). */
+model InvoiceSigner {
+  id            String   @id @default(cuid())
+  title         String
+  name          String
+  createdByRole String @default("finance")
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([title, name, createdByRole])
 }
 
 model BuyerRecord {
@@ -38,11 +101,17 @@ model BuyerRecord {
   vendorName          String
   incomeType          String
   agreementFileName   String
+  /** Display names for up to 5 agreement files (buyers). */
+  agreementFileNames  Json?
   amount              Float
   periodStart         DateTime
   periodEnd           DateTime
   description         String
   createdBy           String
+  /** true when created via admin-system (not management portal). */
+  createdByAdmin      Boolean  @default(false)
+  /** buyers | finance | buyers_admin | finance_admin */
+  createdByRole       String?
   createdAt           DateTime @default(now())
   status              String   @default("created")
   invoiceReceived     Boolean  @default(false)
@@ -56,5 +125,11 @@ model BuyerRecord {
   buyerDeadlineNotifiedAt   DateTime?
   /** Set when deadline reminder email was sent to finance (once per record, MVP). */
   financeDeadlineNotifiedAt DateTime?
+  /** null | pending | denied — buyer asks finance to unlock edits after invoice is in task. */
+  buyerEditRequestStatus  String?
+  buyerEditRequestedAt    DateTime?
+  buyerEditRequestedBy    String?
+  buyerEditResolvedAt     DateTime?
+  buyerEditResolvedBy     String?
   updatedAt           DateTime @updatedAt
 }
