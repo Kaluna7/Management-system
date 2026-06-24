@@ -671,6 +671,12 @@ export function PortalDashboard() {
     })
   }, [financeArchiveSourceList, archiveFilterYear, archiveFilterDate, listSearchQuery])
 
+  const historyListKey = `${listSearchQuery}|history`
+  const historyPagination = useListPagination(buyerHistoryFiltered, historyListKey)
+
+  const archiveListKey = `${listSearchQuery}|${archiveFilterYear}|${archiveFilterDate}|archive`
+  const archivePagination = useListPagination(financeArchiveFiltered, archiveListKey)
+
   useEffect(() => {
     resetListFilters()
   }, [location.pathname, resetListFilters])
@@ -1622,7 +1628,7 @@ export function PortalDashboard() {
                             <div className="portal-table-th">{t('recordTableColActions')}</div>
                           </div>
                           <div className="portal-table-body">
-                            {financeArchiveFiltered.map((record, index) => {
+                            {archivePagination.pageItems.map((record, index) => {
                               const isPublished = record.status === 'history'
                               const zebraClass =
                                 index % 2 === 0 ? 'portal-list-zebra-a' : 'portal-list-zebra-b'
@@ -1783,6 +1789,17 @@ export function PortalDashboard() {
                           </div>
                         </div>
                       )}
+                      <RecordListPagination
+                        page={archivePagination.page}
+                        totalPages={archivePagination.totalPages}
+                        totalItems={archivePagination.totalItems}
+                        pageSize={archivePagination.pageSize}
+                        onPageChange={archivePagination.setPage}
+                        previousLabel={t('paginationPrevious')}
+                        nextLabel={t('paginationNext')}
+                        slideLabel={t('listPaginationSlide')}
+                        rangeLabel={t('listPaginationRange')}
+                      />
                     </div>
                   </section>
                 ) : (
@@ -1827,7 +1844,7 @@ export function PortalDashboard() {
                             <div className="portal-table-th">{t('recordTableColDocuments')}</div>
                           </div>
                           <div className="portal-table-body">
-                            {buyerHistoryFiltered.map((record, index) => {
+                            {historyPagination.pageItems.map((record, index) => {
                               const isPublished = record.status === 'history'
                               const dateIso = isPublished
                                 ? record.publishedAt
@@ -1895,6 +1912,17 @@ export function PortalDashboard() {
                           </div>
                         </div>
                       )}
+                      <RecordListPagination
+                        page={historyPagination.page}
+                        totalPages={historyPagination.totalPages}
+                        totalItems={historyPagination.totalItems}
+                        pageSize={historyPagination.pageSize}
+                        onPageChange={historyPagination.setPage}
+                        previousLabel={t('paginationPrevious')}
+                        nextLabel={t('paginationNext')}
+                        slideLabel={t('listPaginationSlide')}
+                        rangeLabel={t('listPaginationRange')}
+                      />
                     </div>
                   </section>
                 ) : (
