@@ -56,6 +56,15 @@ export function useVendors() {
     return created
   }, [])
 
+  const deleteVendor = useCallback(async (code: string) => {
+    await apiRequest<{ ok: boolean; code: string }>(
+      `/api/vendors/${encodeURIComponent(code)}`,
+      { method: 'DELETE' },
+    )
+    setVendors((prev) => prev.filter((v) => v.code !== code))
+    return code
+  }, [])
+
   return {
     vendors,
     loading,
@@ -64,5 +73,6 @@ export function useVendors() {
     getVendorByCode,
     getVendorNameByCode,
     createVendor,
+    deleteVendor,
   }
 }

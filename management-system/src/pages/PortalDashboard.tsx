@@ -390,7 +390,7 @@ export function PortalDashboard() {
     celebrate: celebratePublish,
   } = useRecordPublishCelebration(records)
 
-  const { vendors, loading: vendorsLoading, getVendorNameByCode, createVendor } = useVendors()
+  const { vendors, loading: vendorsLoading, getVendorNameByCode, createVendor, deleteVendor } = useVendors()
 
   const userName = user?.name ?? 'User'
   const currentUserId = user?.id
@@ -2189,8 +2189,16 @@ export function PortalDashboard() {
                   addVendorNameLabel={t('vendorName')}
                   saveLabel={t('vendorAddSave')}
                   savingLabel={t('savingData')}
+                  deleteVendorLabel={t('vendorDelete')}
+                  deleteVendorTitle={t('vendorDeleteTitle')}
+                  deleteVendorButtonLabel={t('vendorDeleteButton')}
+                  deleteVendorSelectHint={t('vendorDeleteSelectHint')}
+                  deleteVendorConfirm={(code, name) =>
+                    t('vendorDeleteConfirm').replace('{code}', code).replace('{name}', name)
+                  }
                   closeLabel={t('close')}
                   onCreateVendor={createVendor}
+                  onDeleteVendor={deleteVendor}
                 />
               </label>
               <label className="space-y-1 text-sm">
