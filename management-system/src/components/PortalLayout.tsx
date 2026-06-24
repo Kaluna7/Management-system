@@ -1,5 +1,5 @@
 import { useEffect, useId, useState, type ReactNode } from 'react'
-import { FiMenu, FiX } from 'react-icons/fi'
+import { Archive, ClipboardCheck, History, LayoutDashboard, Menu, X, type LucideIcon } from 'lucide-react'
 import { NavLink, useLocation } from 'react-router-dom'
 import finlyLogo from '../assets/logo.png'
 import { LanguageToggle } from './LanguageToggle'
@@ -50,33 +50,14 @@ type Props = {
 }
 
 function NavIcon({ kind, className = 'h-6 w-6' }: { kind: PortalNavIcon; className?: string }) {
-  const cls = `${className} shrink-0`
-  if (kind === 'overview') {
-    return (
-      <svg className={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden>
-        <path d="M4 10.5 12 4l8 6.5V20a1 1 0 0 1-1 1h-5v-6H10v6H5a1 1 0 0 1-1-1v-9.5Z" strokeLinejoin="round" />
-      </svg>
-    )
+  const icons: Record<PortalNavIcon, LucideIcon> = {
+    overview: LayoutDashboard,
+    task: ClipboardCheck,
+    archive: Archive,
+    history: History,
   }
-  if (kind === 'task') {
-    return (
-      <svg className={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden>
-        <path d="M9 11l2 2 4-4M7 3h10a2 2 0 0 1 2 2v14l-4-2-4 2-4-2V5a2 2 0 0 1 2-2Z" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    )
-  }
-  if (kind === 'history') {
-    return (
-      <svg className={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden>
-        <path d="M12 8v4l2.5 1.5M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20Z" strokeLinecap="round" strokeLinejoin="round" />
-      </svg>
-    )
-  }
-  return (
-    <svg className={cls} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden>
-      <path d="M4 7h16M4 12h10M4 17h16" strokeLinecap="round" />
-    </svg>
-  )
+  const Icon = icons[kind]
+  return <Icon className={`${className} shrink-0`} aria-hidden strokeWidth={1.75} />
 }
 
 function MobileDrawerNavLink({
@@ -227,7 +208,7 @@ export function PortalLayout({
             className={hamburgerBtnClass}
             aria-label={t('menuClose')}
           >
-            <FiX className="h-5 w-5" aria-hidden />
+            <X className="h-5 w-5" aria-hidden />
           </button>
         </div>
         <div className="portal-border shrink-0 border-b px-4 py-4">
@@ -283,9 +264,9 @@ export function PortalLayout({
                 aria-label={mobileNavOpen ? t('menuClose') : t('menuOpen')}
               >
                 {mobileNavOpen ? (
-                  <FiX className="h-4 w-4" aria-hidden />
+                  <X className="h-4 w-4" aria-hidden />
                 ) : (
-                  <FiMenu className="h-4 w-4" aria-hidden />
+                  <Menu className="h-4 w-4" aria-hidden />
                 )}
               </button>
               <img src={finlyLogo} alt="" className="h-8 w-8 shrink-0 object-contain" width={32} height={32} />

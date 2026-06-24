@@ -1,4 +1,5 @@
 import { useCallback, useId, useState } from 'react'
+import { Eye, Trash2, X } from 'lucide-react'
 import { AGREEMENT_MAX } from '../utils/agreementFiles'
 import { StagedFilePreviewModal } from './StagedFilePreviewModal'
 
@@ -161,8 +162,9 @@ export function AgreementFilesField({
             <button
               type="button"
               onClick={() => onPreviewExisting(item.previewUrl!, item.name)}
-              className="rounded-md border border-violet-200 bg-white px-2.5 py-1 text-xs font-semibold text-violet-700 hover:bg-violet-50 dark:border-violet-500/40 dark:bg-slate-900 dark:text-violet-200 dark:hover:bg-violet-950/40"
+              className="inline-flex items-center gap-1 rounded-md border border-violet-200 bg-white px-2.5 py-1 text-xs font-semibold text-violet-700 hover:bg-violet-50 dark:border-violet-500/40 dark:bg-slate-900 dark:text-violet-200 dark:hover:bg-violet-950/40"
             >
+              <Eye className="h-3 w-3" aria-hidden strokeWidth={1.75} />
               {labels.preview}
             </button>
           ) : null}
@@ -172,8 +174,9 @@ export function AgreementFilesField({
               if (labels.deleteExistingConfirm && !window.confirm(labels.deleteExistingConfirm)) return
               onRemoveExisting(item.originalIndex)
             }}
-            className="rounded-md border border-red-200 bg-white px-2.5 py-1 text-xs font-semibold text-red-700 hover:bg-red-50 dark:border-red-500/40 dark:bg-slate-900 dark:text-red-300 dark:hover:bg-red-950/40"
+            className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-white px-2.5 py-1 text-xs font-semibold text-red-700 hover:bg-red-50 dark:border-red-500/40 dark:bg-slate-900 dark:text-red-300 dark:hover:bg-red-950/40"
           >
+            <Trash2 className="h-3 w-3" aria-hidden strokeWidth={1.75} />
             {labels.deleteExisting}
           </button>
         </div>
@@ -187,15 +190,17 @@ export function AgreementFilesField({
           <button
             type="button"
             onClick={() => setReviewFile(file)}
-            className="rounded-md border border-violet-200 bg-white px-2.5 py-1 text-xs font-semibold text-violet-700 hover:bg-violet-50 dark:border-violet-500/40 dark:bg-slate-900 dark:text-violet-200 dark:hover:bg-violet-950/40"
+            className="inline-flex items-center gap-1 rounded-md border border-violet-200 bg-white px-2.5 py-1 text-xs font-semibold text-violet-700 hover:bg-violet-50 dark:border-violet-500/40 dark:bg-slate-900 dark:text-violet-200 dark:hover:bg-violet-950/40"
           >
+            <Eye className="h-3 w-3" aria-hidden strokeWidth={1.75} />
             {labels.preview}
           </button>
           <button
             type="button"
             onClick={() => onFilesChange(files.filter((_, i) => i !== index))}
-            className="rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
+            className="inline-flex items-center gap-1 rounded-md border border-slate-300 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 dark:border-slate-600 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
           >
+            <X className="h-3 w-3" aria-hidden strokeWidth={1.75} />
             {labels.remove}
           </button>
         </div>

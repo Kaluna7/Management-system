@@ -1,5 +1,7 @@
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
+import { Search } from 'lucide-react'
 import type { VendorOption } from '../data/vendors'
+import { InputIconWrap } from './InputIconWrap'
 
 export type VendorSearchSelectLabels = {
   loading: string
@@ -71,28 +73,30 @@ export function VendorSearchSelect({
   return (
     <div ref={rootRef} className="relative">
       {name ? <input type="hidden" name={name} value={value} /> : null}
-      <input
-        type="text"
-        role="combobox"
-        aria-expanded={open}
-        aria-controls={listId}
-        autoComplete="off"
-        disabled={isDisabled}
-        placeholder={
-          loading ? labels.loading : vendors.length === 0 ? labels.empty : labels.searchPlaceholder
-        }
-        value={inputValue}
-        onChange={(e) => {
-          setQuery(e.target.value)
-          setOpen(true)
-          if (!e.target.value.trim()) onChange('')
-        }}
-        onFocus={() => {
-          setOpen(true)
-          setQuery('')
-        }}
-        className={inputClassName}
-      />
+      <InputIconWrap icon={Search}>
+        <input
+          type="text"
+          role="combobox"
+          aria-expanded={open}
+          aria-controls={listId}
+          autoComplete="off"
+          disabled={isDisabled}
+          placeholder={
+            loading ? labels.loading : vendors.length === 0 ? labels.empty : labels.searchPlaceholder
+          }
+          value={inputValue}
+          onChange={(e) => {
+            setQuery(e.target.value)
+            setOpen(true)
+            if (!e.target.value.trim()) onChange('')
+          }}
+          onFocus={() => {
+            setOpen(true)
+            setQuery('')
+          }}
+          className={`${inputClassName} pl-9`}
+        />
+      </InputIconWrap>
       {open && !isDisabled ? (
         <div className="absolute z-50 mt-1 w-full overflow-hidden rounded-lg border border-slate-200 bg-white shadow-lg">
           <p className="sticky top-0 border-b border-slate-100 bg-slate-50 px-3 py-1.5 text-xs text-slate-600">

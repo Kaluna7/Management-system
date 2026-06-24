@@ -6,10 +6,12 @@ import {
   type FormEvent,
   type KeyboardEvent as ReactKeyboardEvent,
 } from 'react'
+import { Calendar, Download, FileUp, Pencil, RotateCcw, Search } from 'lucide-react'
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { AgreementFilesField } from '../components/AgreementFilesField'
 import { FormulaFormFilesField } from '../components/FormulaFormFilesField'
 import { FormLoadingOverlay } from '../components/FormLoadingOverlay'
+import { InputIconWrap } from '../components/InputIconWrap'
 import { BuyerRecordDetailView } from '../components/BuyerRecordDetailView'
 import { FinanceRecordDetailFooter, FinanceRecordDetailView } from '../components/FinanceRecordDetailView'
 import { InvoiceBankAccountFields } from '../components/InvoiceBankAccountFields'
@@ -176,32 +178,6 @@ function calendarDayMatchesTimestamp(ms: number, ymd: string) {
   return d.getFullYear() === y && d.getMonth() + 1 === m && d.getDate() === day
 }
 
-function PaperDownloadIcon({ className = 'h-4 w-4' }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-      <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M7 10l5 5 5-5" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M12 15V3" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
-/** Document-with-arrow-up (upload stamped paper). */
-function StampedPaperUploadIcon({ className = 'h-4 w-4' }: { className?: string }) {
-  return (
-    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-      <path
-        d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-      <path d="M14 2v4a2 2 0 0 0 2 2h4" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M12 12v6" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="m9 15 3-3 3 3" strokeLinecap="round" strokeLinejoin="round" />
-    </svg>
-  )
-}
-
 function FinanceTaskRow({
   record,
   onPickFile,
@@ -333,7 +309,7 @@ function FinanceTaskRow({
             disabled={!hasInvoice || rowBlocked}
             className="portal-btn-secondary inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <PaperDownloadIcon className="h-3.5 w-3.5" />
+            <Download className="h-3.5 w-3.5" aria-hidden strokeWidth={1.75} />
             {downloadInvoiceLabel}
           </button>
           <button
@@ -345,13 +321,7 @@ function FinanceTaskRow({
             disabled={rowBlocked}
             className="portal-btn-secondary inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs disabled:cursor-not-allowed disabled:opacity-50"
           >
-            <svg className="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
-              <path
-                d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5Z"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-            </svg>
+            <Pencil className="h-3.5 w-3.5" aria-hidden strokeWidth={1.75} />
             {editLabel}
           </button>
           <StampedPaperUploadButton
@@ -380,7 +350,7 @@ function FinanceTaskRow({
               uploading: stampUploadLabels.uploading,
               publishing: stampUploadLabels.publishing,
             }}
-            icon={<StampedPaperUploadIcon className="h-3.5 w-3.5" />}
+            icon={<FileUp className="h-3.5 w-3.5" aria-hidden strokeWidth={1.75} />}
           />
         </div>
         {remoteWorking ? (
@@ -1551,38 +1521,44 @@ export function PortalDashboard() {
                     <div className="portal-filter-panel mb-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
                       <label className="portal-subheading flex min-w-0 flex-1 flex-col gap-1 text-xs font-medium sm:min-w-[12rem]">
                         {t('recordFilterSearchLabel')}
-                        <input
-                          type="search"
-                          value={listSearchQuery}
-                          onChange={(e) => setListSearchQuery(e.target.value)}
-                          placeholder={t('recordFilterSearchPlaceholder')}
-                          className="portal-input"
-                          autoComplete="off"
-                        />
+                        <InputIconWrap icon={Search}>
+                          <input
+                            type="search"
+                            value={listSearchQuery}
+                            onChange={(e) => setListSearchQuery(e.target.value)}
+                            placeholder={t('recordFilterSearchPlaceholder')}
+                            className="portal-input pl-9"
+                            autoComplete="off"
+                          />
+                        </InputIconWrap>
                       </label>
                       <label className="portal-subheading flex min-w-[10rem] flex-col gap-1 text-xs font-medium">
                         {t('archiveFilterYearLabel')}
-                        <select
-                          value={archiveFilterYear}
-                          onChange={(e) => setArchiveFilterYear(e.target.value)}
-                          className="portal-select"
-                        >
-                          <option value="">{t('archiveFilterYearAll')}</option>
-                          {financeArchiveYearOptions.map((y) => (
-                            <option key={y} value={String(y)}>
-                              {y}
-                            </option>
-                          ))}
-                        </select>
+                        <InputIconWrap icon={Calendar}>
+                          <select
+                            value={archiveFilterYear}
+                            onChange={(e) => setArchiveFilterYear(e.target.value)}
+                            className="portal-select pl-9"
+                          >
+                            <option value="">{t('archiveFilterYearAll')}</option>
+                            {financeArchiveYearOptions.map((y) => (
+                              <option key={y} value={String(y)}>
+                                {y}
+                              </option>
+                            ))}
+                          </select>
+                        </InputIconWrap>
                       </label>
                       <label className="portal-subheading flex min-w-[10rem] flex-col gap-1 text-xs font-medium">
                         {t('archiveFilterDateLabel')}
-                        <input
-                          type="date"
-                          value={archiveFilterDate}
-                          onChange={(e) => setArchiveFilterDate(e.target.value)}
-                          className="portal-select"
-                        />
+                        <InputIconWrap icon={Calendar}>
+                          <input
+                            type="date"
+                            value={archiveFilterDate}
+                            onChange={(e) => setArchiveFilterDate(e.target.value)}
+                            className="portal-select pl-9"
+                          />
+                        </InputIconWrap>
                       </label>
                       {(archiveFilterYear !== '' || archiveFilterDate !== '' || listSearchQuery.trim() !== '') && (
                         <button
@@ -1592,8 +1568,9 @@ export function PortalDashboard() {
                             setArchiveFilterDate('')
                             setListSearchQuery('')
                           }}
-                          className="portal-btn-secondary px-3 py-2 text-xs font-semibold sm:mb-0.5"
+                          className="portal-btn-secondary inline-flex items-center gap-1.5 px-3 py-2 text-xs font-semibold sm:mb-0.5"
                         >
+                          <RotateCcw className="h-3.5 w-3.5" aria-hidden strokeWidth={1.75} />
                           {t('archiveFilterReset')}
                         </button>
                       )}

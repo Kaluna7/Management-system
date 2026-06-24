@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { Plus } from 'lucide-react'
 import type { VendorOption } from '../data/vendors'
 import { AddVendorModal } from './AddVendorModal'
 import { VendorSearchSelect, type VendorSearchSelectLabels } from './VendorSearchSelect'
@@ -71,9 +72,10 @@ export function VendorPickerField({
           setAddError(null)
           setAddOpen(true)
         }}
-        className="portal-accent text-sm font-medium hover:underline"
+        className="portal-accent inline-flex items-center gap-1 text-sm font-medium hover:underline"
       >
-        + {addVendorLabel}
+        <Plus className="h-3.5 w-3.5" aria-hidden strokeWidth={2} />
+        {addVendorLabel}
       </button>
       <AddVendorModal
         open={addOpen}

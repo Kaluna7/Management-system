@@ -1,4 +1,4 @@
-import { FiBell, FiClipboard, FiFileText } from 'react-icons/fi'
+import { Bell, ClipboardList, FileText } from 'lucide-react'
 import type { StringKey } from '../i18n/strings'
 
 export type PortalSummaryIconKind = 'records' | 'reminder'
@@ -17,10 +17,10 @@ export function summaryIconKind(labelKey: StringKey): PortalSummaryIconKind {
 export function PortalSummaryIcon({ kind, role, className = 'h-7 w-7' }: Props) {
   const cls = `${className} shrink-0`
   if (kind === 'reminder') {
-    return <FiBell className={cls} aria-hidden />
+    return <Bell className={cls} aria-hidden strokeWidth={1.75} />
   }
   if (role === 'finance') {
-    return <FiClipboard className={cls} aria-hidden />
+    return <ClipboardList className={cls} aria-hidden strokeWidth={1.75} />
   }
-  return <FiFileText className={cls} aria-hidden />
+  return <FileText className={cls} aria-hidden strokeWidth={1.75} />
 }

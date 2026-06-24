@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useId, useRef, useState, type ChangeEvent, type FormEvent } from 'react'
 import { createPortal } from 'react-dom'
-import { FiChevronLeft, FiChevronRight } from 'react-icons/fi'
+import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { ModalCloseButton } from './ModalCloseButton'
 import { FormLoadingOverlay } from './FormLoadingOverlay'
 import { useAuth } from '../context/AuthContext'
@@ -562,7 +562,7 @@ export function ProfileMenu({ userName, userInitial, compact = false }: Props) {
                         className="portal-card-sm flex w-full items-center justify-between portal-surface-muted px-4 py-3 text-left text-sm font-medium portal-heading transition hover:border-primary/25 hover:bg-primary-light/60"
                       >
                         <span>{t('accountMenuRow')}</span>
-                        <FiChevronRight className="h-5 w-5 shrink-0 text-slate-400" aria-hidden />
+                        <ChevronRight className="h-5 w-5 shrink-0 text-slate-400" aria-hidden strokeWidth={1.75} />
                       </button>
                     </div>
 
@@ -589,7 +589,7 @@ export function ProfileMenu({ userName, userInitial, compact = false }: Props) {
                       onClick={() => setPanel('profile')}
                       className="portal-accent inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 text-sm font-medium hover:bg-primary-light"
                     >
-                      <FiChevronLeft className="h-4 w-4" aria-hidden />
+                      <ChevronLeft className="h-4 w-4" aria-hidden strokeWidth={1.75} />
                       <span className="max-sm:sr-only">{t('accountBackToProfile')}</span>
                     </button>
                     <h2 className="portal-heading min-w-0 flex-1 text-center text-base font-semibold sm:text-lg">
@@ -611,7 +611,7 @@ export function ProfileMenu({ userName, userInitial, compact = false }: Props) {
                             className="portal-card-sm flex w-full items-center justify-between portal-surface-muted px-4 py-3 text-left text-sm font-medium portal-heading transition hover:border-primary/25 hover:bg-primary-light/60 disabled:opacity-50"
                           >
                             <span>{t('accountForgotPassword')}</span>
-                            <FiChevronRight className="h-5 w-5 shrink-0 text-slate-400" aria-hidden />
+                            <ChevronRight className="h-5 w-5 shrink-0 text-slate-400" aria-hidden strokeWidth={1.75} />
                           </button>
                         </section>
 
@@ -653,7 +653,7 @@ export function ProfileMenu({ userName, userInitial, compact = false }: Props) {
                       }}
                       className="portal-accent inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 text-sm font-medium hover:bg-primary-light"
                     >
-                      <FiChevronLeft className="h-4 w-4" aria-hidden />
+                      <ChevronLeft className="h-4 w-4" aria-hidden strokeWidth={1.75} />
                       <span className="max-sm:sr-only">{t('accountForgotPasswordBack')}</span>
                     </button>
                     <h2 className="portal-heading min-w-0 flex-1 text-center text-base font-semibold sm:text-lg">
@@ -735,7 +735,7 @@ export function ProfileMenu({ userName, userInitial, compact = false }: Props) {
                       onClick={() => setPanel('forgot-verify')}
                       className="portal-accent inline-flex shrink-0 items-center gap-1 rounded-lg px-2 py-1.5 text-sm font-medium hover:bg-primary-light"
                     >
-                      <FiChevronLeft className="h-4 w-4" aria-hidden />
+                      <ChevronLeft className="h-4 w-4" aria-hidden strokeWidth={1.75} />
                       <span className="max-sm:sr-only">{t('accountForgotPasswordBack')}</span>
                     </button>
                     <h2 className="portal-heading min-w-0 flex-1 text-center text-base font-semibold sm:text-lg">

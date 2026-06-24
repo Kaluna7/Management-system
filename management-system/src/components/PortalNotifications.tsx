@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
+import { Bell } from 'lucide-react'
 import { ModalCloseButton } from './ModalCloseButton'
 import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
@@ -402,13 +403,7 @@ export function PortalNotifications({ onRecordSelect, compact = false }: Props) 
           aria-controls={previewOpen ? previewPanelId : allOpen ? allPanelId : undefined}
           title={t('notificationsLabel')}
         >
-          <svg className={compact ? 'h-4 w-4' : 'h-5 w-5'} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.75" aria-hidden>
-            <path
-              d="M15 17h5l-1.4-1.4A2 2 0 0 1 18 14.2V11a6 6 0 1 0-12 0v3.2c0 .5-.2 1-.6 1.4L4 17h5M10 20a2 2 0 0 0 4 0"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
+          <Bell className={compact ? 'h-4 w-4' : 'h-5 w-5'} aria-hidden strokeWidth={1.75} />
           {unreadCount > 0 ? (
             <span
               className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center rounded-full bg-red-500 px-1 text-[11px] font-bold leading-none text-white shadow-md ring-2 ring-white"

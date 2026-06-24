@@ -1,7 +1,7 @@
 import gsap from 'gsap'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { FiEye, FiEyeOff } from 'react-icons/fi'
+import { Eye, EyeOff } from 'lucide-react'
 import { LanguageToggle } from '../components/LanguageToggle'
 import { isOnboardingVerifySkipped, loadPendingGoogleSession, loadPendingRoleCode, loadSignupUsername, useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
@@ -791,7 +791,7 @@ export function SelectRole() {
                             className="absolute inset-y-0 right-2 inline-flex items-center text-slate-500 hover:text-slate-700 disabled:opacity-50"
                             aria-label={showPassword ? 'Hide password' : 'Show password'}
                           >
-                            {showPassword ? <FiEyeOff className="h-4 w-4" /> : <FiEye className="h-4 w-4" />}
+                            {showPassword ? <EyeOff className="h-4 w-4" strokeWidth={1.75} /> : <Eye className="h-4 w-4" strokeWidth={1.75} />}
                           </button>
                         </div>
                         <span className="block text-xs text-slate-500">{t('selectRolePasswordHint')}</span>
@@ -818,9 +818,9 @@ export function SelectRole() {
                             aria-label={showPasswordConfirm ? 'Hide confirm password' : 'Show confirm password'}
                           >
                             {showPasswordConfirm ? (
-                              <FiEyeOff className="h-4 w-4" />
+                              <EyeOff className="h-4 w-4" strokeWidth={1.75} />
                             ) : (
-                              <FiEye className="h-4 w-4" />
+                              <Eye className="h-4 w-4" strokeWidth={1.75} />
                             )}
                           </button>
                         </div>

@@ -1,6 +1,6 @@
 import gsap from 'gsap'
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
-import { FiEye, FiEyeOff } from 'react-icons/fi'
+import { Eye, EyeOff } from 'lucide-react'
 import { FcGoogle } from 'react-icons/fc'
 import { useNavigate } from 'react-router-dom'
 import { LanguageToggle } from '../components/LanguageToggle'
@@ -353,9 +353,9 @@ export function Login() {
                               aria-pressed={showPassword}
                             >
                               {showPassword ? (
-                                <FiEyeOff className="h-5 w-5" aria-hidden />
+                                <EyeOff className="h-5 w-5" aria-hidden strokeWidth={1.75} />
                               ) : (
-                                <FiEye className="h-5 w-5" aria-hidden />
+                                <Eye className="h-5 w-5" aria-hidden strokeWidth={1.75} />
                               )}
                             </button>
                           </div>
@@ -483,7 +483,7 @@ export function Login() {
                               className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-slate-400"
                               aria-label={showSignupPassword ? t('loginHidePassword') : t('loginShowPassword')}
                             >
-                              {showSignupPassword ? <FiEyeOff className="h-5 w-5" /> : <FiEye className="h-5 w-5" />}
+                              {showSignupPassword ? <EyeOff className="h-5 w-5" strokeWidth={1.75} /> : <Eye className="h-5 w-5" strokeWidth={1.75} />}
                             </button>
                           </div>
                         </label>
@@ -510,9 +510,9 @@ export function Login() {
                               }
                             >
                               {showSignupPasswordConfirm ? (
-                                <FiEyeOff className="h-5 w-5" />
+                                <EyeOff className="h-5 w-5" strokeWidth={1.75} />
                               ) : (
-                                <FiEye className="h-5 w-5" />
+                                <Eye className="h-5 w-5" strokeWidth={1.75} />
                               )}
                             </button>
                           </div>
