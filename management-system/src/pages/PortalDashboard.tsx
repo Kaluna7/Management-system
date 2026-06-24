@@ -9,6 +9,7 @@ import {
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 import { AgreementFilesField } from '../components/AgreementFilesField'
 import { FormulaFormFilesField } from '../components/FormulaFormFilesField'
+import { FormLoadingOverlay } from '../components/FormLoadingOverlay'
 import { BuyerRecordDetailView } from '../components/BuyerRecordDetailView'
 import { FinanceRecordDetailFooter, FinanceRecordDetailView } from '../components/FinanceRecordDetailView'
 import { InvoiceBankAccountFields } from '../components/InvoiceBankAccountFields'
@@ -576,6 +577,8 @@ export function PortalDashboard() {
   const [buyerDescription, setBuyerDescription] = useState('')
   const [periodRange, setPeriodRange] = useState<PeriodRangeValue>({ start: '', end: '' })
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false)
+  const [buyerFormBusy, setBuyerFormBusy] = useState(false)
+  const [invoiceFormBusy, setInvoiceFormBusy] = useState(false)
   const [invoiceBankDetails, setInvoiceBankDetails] = useState<InvoiceBankDetails>({
     ...EMPTY_BANK_DETAILS,
   })
@@ -884,6 +887,7 @@ export function PortalDashboard() {
   }
 
   function closeBuyerFormModal() {
+    if (buyerFormBusy) return
     setIsCreateModalOpen(false)
     setEditingBuyerRecordId(null)
     setSelectedVendorCode(vendors[0]?.code ?? '')
@@ -962,8 +966,9 @@ export function PortalDashboard() {
     editingBuyerRecord?.vendorName ||
     ''
 
-  function submitBuyerForm(event: FormEvent) {
+  async function submitBuyerForm(event: FormEvent) {
     event.preventDefault()
+    if (buyerFormBusy) return
     const form = event.currentTarget as HTMLFormElement
     const formData = new FormData(form)
     const vendorCode = String(formData.get('vendorCode') ?? selectedVendorCode).trim()
@@ -1027,57 +1032,54 @@ export function PortalDashboard() {
       description: buyerDescription.trim(),
     }
 
-    if (editingBuyerRecordId) {
-      if (agreementFilesChanged) {
-        if (totalAgreementDocs === 0) {
+    setBuyerFormBusy(true)
+    try {
+      if (editingBuyerRecordId) {
+        if (agreementFilesChanged) {
+          if (totalAgreementDocs === 0) {
+            window.alert(t('agreementFileRequired'))
+            return
+          }
+          if (totalAgreementDocs > AGREEMENT_MAX) {
+            window.alert(t('agreementFileMax'))
+            return
+          }
+        } else if (totalAgreementDocs === 0) {
           window.alert(t('agreementFileRequired'))
           return
         }
-        if (totalAgreementDocs > AGREEMENT_MAX) {
-          window.alert(t('agreementFileMax'))
-          return
-        }
-      } else if (totalAgreementDocs === 0) {
+        await updateBuyerData(
+          editingBuyerRecordId,
+          payload,
+          agreementFilesChanged ? { newFiles: agreementFiles, keepSlots } : null,
+        )
+        form.reset()
+        closeBuyerFormModal()
+        return
+      }
+
+      if (agreementFiles.length === 0) {
         window.alert(t('agreementFileRequired'))
         return
       }
-      void updateBuyerData(
-        editingBuyerRecordId,
-        payload,
-        agreementFilesChanged ? { newFiles: agreementFiles, keepSlots } : null,
-      )
-        .then(() => {
-          form.reset()
-          closeBuyerFormModal()
-        })
-        .catch((err) => {
-          window.alert(err instanceof Error ? err.message : t('agreementFileMax'))
-        })
-      return
+      if (agreementFiles.length > AGREEMENT_MAX) {
+        window.alert(t('agreementFileMax'))
+        return
+      }
+      await createBuyerData(payload, userName, 'buyers', { newFiles: agreementFiles })
+      form.reset()
+      closeBuyerFormModal()
+      navigate('/dashboard')
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : t('agreementFileMax'))
+    } finally {
+      setBuyerFormBusy(false)
     }
-
-    if (agreementFiles.length === 0) {
-      window.alert(t('agreementFileRequired'))
-      return
-    }
-    if (agreementFiles.length > AGREEMENT_MAX) {
-      window.alert(t('agreementFileMax'))
-      return
-    }
-    void createBuyerData(payload, userName, 'buyers', { newFiles: agreementFiles })
-      .then(() => {
-        form.reset()
-        closeBuyerFormModal()
-        navigate('/dashboard')
-      })
-      .catch((err) => {
-        window.alert(err instanceof Error ? err.message : t('agreementFileRequired'))
-      })
   }
 
-  function submitInvoice(event: FormEvent) {
+  async function submitInvoice(event: FormEvent) {
     event.preventDefault()
-    if (!selectedRecord) return
+    if (!selectedRecord || invoiceFormBusy) return
     const form = event.currentTarget as HTMLFormElement
     const formData = new FormData(form)
 
@@ -1154,15 +1156,16 @@ export function PortalDashboard() {
       !isEditingInvoice || filesChanged
         ? { newFiles: formulaFormFiles, keepSlots }
         : undefined
-    void createInvoice(selectedRecord.id, invoice, userName, formulaUpload)
-      .then(() => {
-        setIsInvoiceModalOpen(false)
-        navigate(editing ? '/dashboard/task' : '/dashboard')
-      })
-      .catch(() => {
-        /* keep modal open */
-      })
-    form.reset()
+    setInvoiceFormBusy(true)
+    try {
+      await createInvoice(selectedRecord.id, invoice, userName, formulaUpload)
+      setIsInvoiceModalOpen(false)
+      navigate(editing ? '/dashboard/task' : '/dashboard')
+    } catch {
+      /* keep modal open */
+    } finally {
+      setInvoiceFormBusy(false)
+    }
   }
 
   function preventEnterSubmit(event: ReactKeyboardEvent<HTMLFormElement>) {
@@ -1905,12 +1908,17 @@ export function PortalDashboard() {
 
       {userRole === 'finance' && isInvoiceModalOpen ? (
         <div className="fixed inset-0 z-[100] flex items-center justify-center portal-overlay p-4">
-          <div className="portal-modal max-h-[92vh] w-full max-w-3xl overflow-y-auto p-6">
+          <div className="relative portal-modal max-h-[92vh] w-full max-w-3xl overflow-y-auto p-6">
+            <FormLoadingOverlay active={invoiceFormBusy} label={t('savingData')} />
             <div className="mb-4 flex items-center justify-between gap-3">
               <h2 className="portal-heading text-lg font-semibold">
                 {isEditingInvoice ? t('financeEditInvoice') : t('invoiceFormTitle')}
               </h2>
-              <ModalCloseButton onClick={() => setIsInvoiceModalOpen(false)} label={t('close')} />
+              <ModalCloseButton
+                onClick={() => setIsInvoiceModalOpen(false)}
+                disabled={invoiceFormBusy}
+                label={t('close')}
+              />
             </div>
             <label className="mb-4 block space-y-1 text-sm">
               <span>{t('invoiceSelectHint')}</span>
@@ -2141,15 +2149,17 @@ export function PortalDashboard() {
                   <button
                     type="button"
                     onClick={() => setIsInvoiceModalOpen(false)}
-                    className="portal-btn-secondary"
+                    disabled={invoiceFormBusy}
+                    className="portal-btn-secondary disabled:opacity-60"
                   >
                     {t('cancel')}
                   </button>
                   <button
                     type="submit"
-                    className="portal-btn-primary"
+                    disabled={invoiceFormBusy}
+                    className="portal-btn-primary disabled:opacity-60"
                   >
-                    {t('saveInvoice')}
+                    {invoiceFormBusy ? t('savingData') : t('saveInvoice')}
                   </button>
                 </div>
               </form>
@@ -2164,12 +2174,17 @@ export function PortalDashboard() {
 
       {userRole === 'buyers' && isCreateModalOpen ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center portal-overlay p-4 backdrop-blur-sm">
-          <div className={`portal-modal max-h-[90vh] w-full max-w-3xl overflow-y-auto p-6`}>
+          <div className="relative portal-modal max-h-[90vh] w-full max-w-3xl overflow-y-auto p-6">
+            <FormLoadingOverlay active={buyerFormBusy} label={t('savingData')} />
             <div className="mb-4 flex items-center justify-between gap-3">
               <h2 className="portal-heading text-lg font-semibold">
                 {editingBuyerRecordId ? t('modalEditTitle') : t('modalAddTitle')}
               </h2>
-              <ModalCloseButton onClick={closeBuyerFormModal} label={t('close')} />
+              <ModalCloseButton
+                onClick={closeBuyerFormModal}
+                disabled={buyerFormBusy}
+                label={t('close')}
+              />
             </div>
             <form
               key={editingBuyerRecordId ?? 'create'}
@@ -2196,6 +2211,7 @@ export function PortalDashboard() {
                   addVendorCodeLabel={t('vendorCode')}
                   addVendorNameLabel={t('vendorName')}
                   saveLabel={t('vendorAddSave')}
+                  savingLabel={t('savingData')}
                   closeLabel={t('close')}
                   onCreateVendor={createVendor}
                 />
@@ -2316,15 +2332,21 @@ export function PortalDashboard() {
                 <button
                   type="button"
                   onClick={closeBuyerFormModal}
-                  className="portal-btn-secondary"
+                  disabled={buyerFormBusy}
+                  className="portal-btn-secondary disabled:opacity-60"
                 >
                   {t('cancel')}
                 </button>
                 <button
                   type="submit"
-                  className="portal-btn-primary"
+                  disabled={buyerFormBusy}
+                  className="portal-btn-primary disabled:opacity-60"
                 >
-                  {editingBuyerRecordId ? t('saveChanges') : t('save')}
+                  {buyerFormBusy
+                    ? t('savingData')
+                    : editingBuyerRecordId
+                      ? t('saveChanges')
+                      : t('save')}
                 </button>
               </div>
             </form>

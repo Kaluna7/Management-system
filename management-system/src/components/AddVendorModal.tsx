@@ -1,5 +1,6 @@
 import { useEffect, useState, type FormEvent } from 'react'
 import { createPortal } from 'react-dom'
+import { FormLoadingOverlay } from './FormLoadingOverlay'
 import { ModalCloseButton } from './ModalCloseButton'
 
 export type AddVendorModalProps = {
@@ -8,6 +9,7 @@ export type AddVendorModalProps = {
   codeLabel: string
   nameLabel: string
   saveLabel: string
+  savingLabel?: string
   closeLabel: string
   busy?: boolean
   error?: string | null
@@ -21,6 +23,7 @@ export function AddVendorModal({
   codeLabel,
   nameLabel,
   saveLabel,
+  savingLabel,
   closeLabel,
   busy = false,
   error = null,
@@ -63,9 +66,10 @@ export function AddVendorModal({
       }}
     >
       <div
-        className="portal-modal w-full max-w-md p-6"
+        className="relative portal-modal w-full max-w-md p-6"
         onMouseDown={(ev) => ev.stopPropagation()}
       >
+        <FormLoadingOverlay active={busy} label={savingLabel} />
         <div className="mb-4 flex items-start justify-between gap-3">
           <h2 id="add-vendor-title" className="portal-heading text-lg font-semibold">
             {title}
@@ -105,8 +109,8 @@ export function AddVendorModal({
             <button type="button" disabled={busy} onClick={onClose} className="portal-btn-secondary">
               {closeLabel}
             </button>
-            <button type="submit" disabled={busy} className="portal-btn-primary">
-              {saveLabel}
+            <button type="submit" disabled={busy} className="portal-btn-primary disabled:opacity-60">
+              {busy ? (savingLabel ?? saveLabel) : saveLabel}
             </button>
           </div>
         </form>

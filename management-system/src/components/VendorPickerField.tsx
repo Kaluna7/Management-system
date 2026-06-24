@@ -15,6 +15,7 @@ export type VendorPickerFieldProps = {
   addVendorCodeLabel: string
   addVendorNameLabel: string
   saveLabel: string
+  savingLabel?: string
   closeLabel: string
   onCreateVendor: (code: string, name: string) => Promise<VendorOption>
 }
@@ -31,6 +32,7 @@ export function VendorPickerField({
   addVendorCodeLabel,
   addVendorNameLabel,
   saveLabel,
+  savingLabel,
   closeLabel,
   onCreateVendor,
 }: VendorPickerFieldProps) {
@@ -79,6 +81,7 @@ export function VendorPickerField({
         codeLabel={addVendorCodeLabel}
         nameLabel={addVendorNameLabel}
         saveLabel={saveLabel}
+        savingLabel={savingLabel}
         closeLabel={closeLabel}
         busy={addBusy}
         error={addError}

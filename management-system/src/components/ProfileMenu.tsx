@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useRef, useState, type ChangeEvent, type
 import { createPortal } from 'react-dom'
 import { FiChevronLeft, FiChevronRight } from 'react-icons/fi'
 import { ModalCloseButton } from './ModalCloseButton'
+import { FormLoadingOverlay } from './FormLoadingOverlay'
 import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
 import { PROFILE_AVATAR_PRESETS } from '../data/profileAvatarPresets'
@@ -448,12 +449,16 @@ export function ProfileMenu({ userName, userInitial, compact = false }: Props) {
             >
               <div className="flex min-h-full items-center justify-center p-3 sm:p-4 md:p-6">
                 <div
-                  className="portal-modal flex w-full max-w-[min(100%,28rem)] flex-col overflow-hidden shadow-xl sm:max-w-md"
+                  className="relative portal-modal flex w-full max-w-[min(100%,28rem)] flex-col overflow-hidden shadow-xl sm:max-w-md"
                   role="dialog"
                   aria-modal="true"
                   aria-labelledby="profile-edit-title"
                   onMouseDown={(e) => e.stopPropagation()}
                 >
+                  <FormLoadingOverlay
+                    active={busy || resetBusy || forgotPasswordBusy}
+                    label={t('savingData')}
+                  />
                   <div className="relative w-full overflow-hidden" style={{ minHeight: 'min(70dvh, 28rem)' }}>
               <div
                 className="flex h-full w-[400%] transition-transform duration-300 ease-in-out"
@@ -570,7 +575,7 @@ export function ProfileMenu({ userName, userInitial, compact = false }: Props) {
                         disabled={busy}
                         className="portal-btn-primary w-full sm:w-auto disabled:opacity-60"
                       >
-                        {t('save')}
+                        {busy ? t('savingData') : t('save')}
                       </button>
                     </div>
                   </form>
