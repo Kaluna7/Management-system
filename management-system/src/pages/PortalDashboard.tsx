@@ -70,6 +70,7 @@ import {
 import { countPeriodExpiryReminders, daysUntilPeriodEnd } from '../utils/periodExpiryReminders'
 import type { PortalNotificationItem } from '../utils/portalNotifications'
 import { RecordListFilterBar, type RecordListFilterOption } from '../components/RecordListFilterBar'
+import { RecordListPagination } from '../components/RecordListPagination'
 import { RecordWorkingOverlay } from '../components/RecordWorkingOverlay'
 import { PortalSummaryIcon, summaryIconKind } from '../components/PortalSummaryIcon'
 import { RecordPublishSuccessModal } from '../components/RecordPublishSuccessModal'
@@ -87,6 +88,7 @@ import {
 } from '../utils/invoiceNumberFromRecord'
 import { VendorPickerField } from '../components/VendorPickerField'
 import { useVendors } from '../hooks/useVendors'
+import { useListPagination } from '../hooks/useListPagination'
 import {
   filterRecordList,
   recordMatchesSearch,
@@ -649,6 +651,12 @@ export function PortalDashboard() {
       }),
     [buyerHistoryRecords, listSearchQuery, userRole],
   )
+
+  const overviewListKey = `${listSearchQuery}|${listStatusFilter}|overview`
+  const overviewPagination = useListPagination(activeDashboardFiltered, overviewListKey)
+
+  const financeTaskListKey = `${listSearchQuery}|${listStatusFilter}|task`
+  const financeTaskPagination = useListPagination(financeTaskFiltered, financeTaskListKey)
 
   const financeArchiveFiltered = useMemo(() => {
     const ySel = archiveFilterYear === '' ? null : Number(archiveFilterYear)
@@ -1291,7 +1299,7 @@ export function PortalDashboard() {
                           ) : null}
                         </div>
                         <div className="portal-table-body">
-                          {activeDashboardFiltered.map((record, index) => {
+                          {overviewPagination.pageItems.map((record, index) => {
                             const reminder = daysUntilPeriodEnd(record.periodEnd)
                             const zebraClass = index % 2 === 0 ? 'portal-list-zebra-a' : 'portal-list-zebra-b'
                             const inFinanceTask =
@@ -1398,6 +1406,17 @@ export function PortalDashboard() {
                         </div>
                       </div>
                     )}
+                    <RecordListPagination
+                      page={overviewPagination.page}
+                      totalPages={overviewPagination.totalPages}
+                      totalItems={overviewPagination.totalItems}
+                      pageSize={overviewPagination.pageSize}
+                      onPageChange={overviewPagination.setPage}
+                      previousLabel={t('paginationPrevious')}
+                      nextLabel={t('paginationNext')}
+                      slideLabel={t('listPaginationSlide')}
+                      rangeLabel={t('listPaginationRange')}
+                    />
                   </div>
                 </section>
               }
@@ -1446,7 +1465,7 @@ export function PortalDashboard() {
                             <div className="portal-table-th">{t('recordTableColActions')}</div>
                           </div>
                           <div className="portal-table-body">
-                            {financeTaskFiltered.map((record, index) => {
+                            {financeTaskPagination.pageItems.map((record, index) => {
                               const remoteWorking = recordWorkingByOther(
                                 record.id,
                                 currentUserId,
@@ -1503,6 +1522,17 @@ export function PortalDashboard() {
                           </div>
                         </div>
                       )}
+                      <RecordListPagination
+                        page={financeTaskPagination.page}
+                        totalPages={financeTaskPagination.totalPages}
+                        totalItems={financeTaskPagination.totalItems}
+                        pageSize={financeTaskPagination.pageSize}
+                        onPageChange={financeTaskPagination.setPage}
+                        previousLabel={t('paginationPrevious')}
+                        nextLabel={t('paginationNext')}
+                        slideLabel={t('listPaginationSlide')}
+                        rangeLabel={t('listPaginationRange')}
+                      />
                     </div>
                   </section>
                 ) : (
