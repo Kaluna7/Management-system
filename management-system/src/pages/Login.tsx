@@ -1,15 +1,12 @@
 import gsap from 'gsap'
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, type FormEvent } from 'react'
 import { Eye, EyeOff } from 'lucide-react'
-import { FcGoogle } from 'react-icons/fc'
 import { useNavigate } from 'react-router-dom'
 import { LanguageToggle } from '../components/LanguageToggle'
 import { useAuth } from '../context/AuthContext'
 import { useLanguage } from '../context/LanguageContext'
 import { loadLottieWeb, type LottieJson, type LottiePlayer } from '../lib/lottieWeb'
-import { mountGoogleSignInButton } from '../lib/googleIdentity'
 
-const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID as string | undefined
 const USERNAME_RE = /^[a-z0-9_]{3,32}$/
 
 type AuthPanel = 'login' | 'signup' | 'verify'
@@ -32,7 +29,7 @@ function formatVerificationCooldownDuration(totalSec: number): string {
 }
 
 export function Login() {
-  const { login, loginWithGoogleCredential, sendEmailSignupCode, verifyEmailSignup } = useAuth()
+  const { login, sendEmailSignupCode, verifyEmailSignup } = useAuth()
   const { t } = useLanguage()
   const navigate = useNavigate()
   const [panel, setPanel] = useState<AuthPanel>('login')
@@ -48,7 +45,6 @@ export function Login() {
   const [error, setError] = useState<string | null>(null)
   const [lottieData, setLottieData] = useState<LottieJson | null>(null)
   const lottieContainerRef = useRef<HTMLDivElement>(null)
-  const googleBtnHostRef = useRef<HTMLDivElement>(null)
   const panelStripRef = useRef<HTMLDivElement>(null)
   const [showPassword, setShowPassword] = useState(false)
   const [showSignupPassword, setShowSignupPassword] = useState(false)
@@ -125,45 +121,6 @@ export function Login() {
     }, 1000)
     return () => window.clearInterval(id)
   }, [cooldownActive])
-
-  const onGoogleCredential = useCallback(
-    async (credential: string) => {
-      setError(null)
-      const result = await loginWithGoogleCredential(credential)
-      if (result.ok === false) {
-        setError(result.message)
-        return
-      }
-      if (result.needsRole) navigate('/select-role', { replace: true })
-      else navigate('/dashboard', { replace: true })
-    },
-    [loginWithGoogleCredential, navigate],
-  )
-
-  useEffect(() => {
-    const host = googleBtnHostRef.current
-    const cid = googleClientId?.trim()
-    if (!host || !cid || panel !== 'login') return
-
-    let cancelled = false
-    let cleanup: (() => void) | undefined
-
-    void mountGoogleSignInButton(host, cid, (jwt) => {
-      void onGoogleCredential(jwt)
-    })
-      .then((fn) => {
-        if (cancelled) fn()
-        else cleanup = fn
-      })
-      .catch(() => {
-        if (!cancelled) setError(t('googleSignInFailed'))
-      })
-
-    return () => {
-      cancelled = true
-      cleanup?.()
-    }
-  }, [onGoogleCredential, panel, t])
 
   const [loginBusy, setLoginBusy] = useState(false)
   const [signupBusy, setSignupBusy] = useState(false)
@@ -370,56 +327,7 @@ export function Login() {
                         </button>
                       </form>
 
-                      <div className="relative my-8">
-                        <div className="absolute inset-0 flex items-center" aria-hidden="true">
-                          <div className="portal-border w-full border-t" />
-                        </div>
-                        <div className="relative flex justify-center">
-                          <span className="portal-surface px-4 text-xs font-semibold uppercase tracking-wider portal-muted">
-                            {t('orDivider')}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="space-y-3">
-                        {googleClientId ? (
-                          <div
-                            className="portal-card-sm relative w-full overflow-visible transition hover:border-slate-300 hover:shadow-md dark:hover:border-slate-600"
-                            role="group"
-                            aria-label={t('googleSignIn')}
-                          >
-                            <div className="pointer-events-none flex min-h-[52px] w-full items-center justify-center gap-3 px-4 py-3">
-                              <FcGoogle className="h-7 w-7 shrink-0" aria-hidden />
-                              <span className="portal-heading text-sm font-semibold tracking-tight">
-                                {t('googleSignIn')}
-                              </span>
-                            </div>
-                            <div
-                              ref={googleBtnHostRef}
-                              className="absolute inset-0 z-10 flex items-center justify-center opacity-[0.02] [&>div]:flex [&>div]:min-h-[52px] [&>div]:w-full [&>div]:max-w-full [&>div]:items-center [&>div]:justify-center [&_iframe]:mx-auto"
-                              aria-hidden
-                            />
-                          </div>
-                        ) : (
-                          <button
-                            type="button"
-                            disabled
-                            className="portal-card-sm flex w-full min-h-[52px] cursor-not-allowed items-center justify-center gap-3 portal-surface-muted px-4 py-3 text-left opacity-90"
-                            aria-label={t('googleSignIn')}
-                          >
-                            <FcGoogle className="h-7 w-7 shrink-0 opacity-80" aria-hidden />
-                            <span className="text-sm font-semibold tracking-tight text-slate-600">
-                              {t('googleSignIn')}
-                            </span>
-                          </button>
-                        )}
-                        {!googleClientId ? (
-                          <p className="text-center text-xs leading-relaxed text-amber-800/90 dark:text-amber-200">
-                            {t('googleNotConfigured')}
-                          </p>
-                        ) : null}
-
-                        <p className="pt-1 text-center text-sm">
+                      <p className="pt-6 text-center text-sm">
                           <button
                             type="button"
                             onClick={() => {
@@ -428,10 +336,9 @@ export function Login() {
                             }}
                             className="font-semibold text-primary hover:text-primary-hover hover:underline"
                           >
-                            {t('signupWithEmail')}
-                          </button>
-                        </p>
-                      </div>
+                          {t('signupWithEmail')}
+                        </button>
+                      </p>
                     </section>
 
                     {/* Sign up */}
