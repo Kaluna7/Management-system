@@ -186,11 +186,11 @@
   }
 
   .portal-table-row--overview-buyer {
-    grid-template-columns: minmax(160px, 2fr) minmax(100px, 1fr) minmax(130px, 1.1fr) minmax(120px, 1fr);
+    grid-template-columns: minmax(160px, 2fr) minmax(160px, 1.4fr) minmax(130px, 1.1fr) minmax(120px, 1fr);
   }
 
   .portal-table-row--overview-finance {
-    grid-template-columns: minmax(160px, 2fr) minmax(100px, 1fr) minmax(130px, 1.1fr);
+    grid-template-columns: minmax(160px, 2fr) minmax(160px, 1.4fr) minmax(130px, 1.1fr);
   }
 
   .portal-table-row--task {

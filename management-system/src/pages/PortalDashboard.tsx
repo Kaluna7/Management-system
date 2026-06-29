@@ -105,6 +105,13 @@ function formatDate(isoDate: string, dateLocale: string) {
   })
 }
 
+function formatPeriodRange(
+  record: { periodStart: string; periodEnd: string },
+  dateLocale: string,
+) {
+  return `${formatDate(record.periodStart, dateLocale)} – ${formatDate(record.periodEnd, dateLocale)}`
+}
+
 function parseNumberInput(value: string) {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : 0
@@ -1298,7 +1305,7 @@ export function PortalDashboard() {
                           className={`portal-table-head portal-table-row ${userRole === 'buyers' ? 'portal-table-row--overview-buyer' : 'portal-table-row--overview-finance'}`}
                         >
                           <div className="portal-table-th">{t('vendorName')}</div>
-                          <div className="portal-table-th">{t('periodEndField')}</div>
+                          <div className="portal-table-th">{t('recordTableColPeriod')}</div>
                           <div className="portal-table-th">{t('statusLabel')}</div>
                           {userRole === 'buyers' ? (
                             <div className="portal-table-th">{t('recordTableColDocuments')}</div>
@@ -1370,7 +1377,7 @@ export function PortalDashboard() {
                                   <p className="portal-muted truncate text-xs">{record.vendorCode}</p>
                                 </div>
                                 <div className="portal-table-td text-sm portal-body">
-                                  {formatDate(record.periodEnd, dateLocale)}
+                                  {formatPeriodRange(record, dateLocale)}
                                 </div>
                                 <div className="portal-table-td">{statusBadge}</div>
                                 {userRole === 'buyers' ? (
