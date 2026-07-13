@@ -2135,15 +2135,15 @@ export function PortalDashboard() {
                   }
                   onRemoveExisting={handleRemoveExistingFormulaSlot}
                   required={!isEditingInvoice || removedExistingFormulaSlots.size > 0}
+                  existingFileAction="download"
                   onPreviewExisting={(_url, name) => {
                     const item = visibleExistingFormulaFiles.find((f) => f.name === name)
                     if (!selectedRecord || !item) return
-                    setDocPreview({
-                      recordId: selectedRecord.id,
-                      kind: 'formula-form',
-                      fileName: name,
-                      fileIndex: item.originalIndex,
-                    })
+                    void handleArchivePublishedDownload(
+                      selectedRecord,
+                      'formula-form',
+                      item.originalIndex,
+                    )
                   }}
                   labels={{
                     choose: t('invFormulaForm'),
@@ -2152,7 +2152,7 @@ export function PortalDashboard() {
                     count: t('invFormulaFormCount'),
                     selected: t('invFormulaSelected'),
                     currentFile: t('invFormulaCurrentFile'),
-                    preview: t('agreementPreview'),
+                    preview: t('recordDocDownload'),
                     confirmFile: t('invFormulaConfirmFile'),
                     cancelPick: t('agreementCancelPick'),
                     previewUnavailable: t('agreementPreviewUnavailable'),
@@ -2408,7 +2408,7 @@ export function PortalDashboard() {
         <div className="fixed inset-0 z-50 flex items-center justify-center portal-overlay p-4 backdrop-blur-sm">
           <div className="portal-modal flex max-h-[min(92vh,820px)] w-full max-w-3xl flex-col overflow-hidden">
             <div className="portal-divider flex shrink-0 items-center justify-between border-b px-5 py-4 sm:px-6">
-              <h3 className="portal-heading text-lg font-semibold">{t('detailTitle')}</h3>
+              <h3 className="portal-heading text-lg font-medium">{t('detailTitle')}</h3>
               <ModalCloseButton onClick={() => setDetailRecordId(null)} label={t('close')} />
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">

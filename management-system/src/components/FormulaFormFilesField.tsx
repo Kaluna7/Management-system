@@ -1,5 +1,5 @@
 import { useCallback, useId, useState } from 'react'
-import { Eye, Trash2, X } from 'lucide-react'
+import { Download, Eye, Trash2, X } from 'lucide-react'
 import { FORMULA_FORM_MAX } from '../utils/formulaFormFiles'
 import { StagedFilePreviewModal } from './StagedFilePreviewModal'
 
@@ -38,6 +38,8 @@ type Props = {
   required?: boolean
   portalUI?: boolean
   onPreviewExisting?: (url: string, name: string) => void
+  /** Existing saved files: open preview popup (default) or download without popup. */
+  existingFileAction?: 'preview' | 'download'
 }
 
 function isPdfFile(f: File) {
@@ -54,6 +56,7 @@ export function FormulaFormFilesField({
   required,
   portalUI = false,
   onPreviewExisting,
+  existingFileAction = 'preview',
 }: Props) {
   const inputId = useId()
   const [stagingQueue, setStagingQueue] = useState<File[]>([])
@@ -154,7 +157,11 @@ export function FormulaFormFilesField({
               onClick={() => onPreviewExisting(item.previewUrl!, item.name)}
               className="inline-flex items-center gap-1 rounded-md border border-emerald-200 bg-white px-2.5 py-1 text-xs font-semibold text-emerald-800 hover:bg-emerald-50"
             >
-              <Eye className="h-3 w-3" aria-hidden strokeWidth={1.75} />
+              {existingFileAction === 'download' ? (
+                <Download className="h-3 w-3" aria-hidden strokeWidth={1.75} />
+              ) : (
+                <Eye className="h-3 w-3" aria-hidden strokeWidth={1.75} />
+              )}
               {labels.preview}
             </button>
           ) : null}

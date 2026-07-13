@@ -41,19 +41,24 @@ function stripLabelColon(label: string) {
 function DetailField({
   label,
   value,
-  fullWidth,
   mono,
+  multiline,
 }: {
   label: string
   value: string
   fullWidth?: boolean
   mono?: boolean
+  multiline?: boolean
 }) {
   if (!value.trim()) return null
   return (
-    <div className={fullWidth ? 'sm:col-span-2' : undefined}>
+    <div>
       <dt className="text-[10px] font-semibold uppercase tracking-wider text-app-muted">{label}</dt>
-      <dd className={`mt-1 text-sm font-medium leading-snug text-app-text ${mono ? 'font-mono text-[13px]' : ''}`}>
+      <dd
+        className={`mt-1 text-sm font-medium leading-relaxed text-app-text ${
+          mono ? 'break-all font-mono text-[13px]' : 'break-words'
+        } ${multiline ? 'whitespace-pre-wrap' : ''}`}
+      >
         {value}
       </dd>
     </div>
@@ -99,7 +104,9 @@ function TimelineRow({
       <div className="min-w-0 pt-0.5">
         <p className="text-[10px] font-semibold uppercase tracking-wider text-app-muted">{label}</p>
         <p
-          className={`mt-0.5 text-sm font-medium leading-snug text-app-text ${mono ? 'break-all font-mono text-[13px]' : ''}`}
+          className={`mt-0.5 text-sm font-medium leading-snug text-app-text ${
+            mono ? 'break-all font-mono text-[13px]' : 'break-words'
+          }`}
           title={value}
         >
           {value}
@@ -143,11 +150,11 @@ function FinanceTaskPanel({
       ) : null}
       <p className="portal-muted mt-3 text-sm leading-relaxed">{t('buyerAskEditPermissionHint')}</p>
       {pending ? (
-        <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-sm font-medium text-amber-900">
+        <p className="mt-3 rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-sm text-amber-800/90">
           {t('buyerEditRequestPending')}
         </p>
       ) : approved ? (
-        <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-sm font-medium text-emerald-900">
+        <p className="mt-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3.5 py-2.5 text-sm text-emerald-800/90">
           {t('buyerEditRequestApproved')}
         </p>
       ) : denied ? (
@@ -283,11 +290,22 @@ export function BuyerRecordDetailView({
         </div>
       </div>
 
-      <dl className="grid gap-4 rounded-2xl border border-app-border bg-app-bg/50 px-4 py-4 sm:grid-cols-2 sm:px-5">
-        <DetailField label={stripLabelColon(t('detailIncomeType'))} value={record.incomeType} />
-        <DetailField label={t('periodRangeLabel')} value={periodRange} />
-        <DetailField label={stripLabelColon(t('detailDescription'))} value={record.description} fullWidth />
-      </dl>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <div className="rounded-2xl border border-app-border bg-app-bg/50 px-4 py-3.5">
+          <DetailField label={stripLabelColon(t('detailIncomeType'))} value={record.incomeType} />
+        </div>
+        <div className="rounded-2xl border border-app-border bg-app-bg/50 px-4 py-3.5">
+          <DetailField label={t('periodRangeLabel')} value={periodRange} />
+        </div>
+        <div className="rounded-2xl border border-app-border bg-app-bg/50 px-4 py-3.5 sm:col-span-2">
+          <DetailField
+            label={stripLabelColon(t('detailDescription'))}
+            value={record.description}
+            fullWidth
+            multiline
+          />
+        </div>
+      </div>
 
       {documents.length > 0 ? (
         <section className="rounded-2xl border border-violet-200/80 bg-linear-to-br from-violet-50/70 to-white px-4 py-4 sm:px-5">
