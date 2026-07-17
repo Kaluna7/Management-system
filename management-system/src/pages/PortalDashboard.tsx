@@ -2388,15 +2388,15 @@ export function PortalDashboard() {
                   removedExistingAgreementSlots.size > 0 ||
                   existingAgreementNames.length === 0
                 }
+                existingFileAction="download"
                 onPreviewExisting={(_url, name) => {
                   const item = visibleExistingAgreementFiles.find((f) => f.name === name)
-                  if (!editingBuyerRecordId || !item) return
-                  setDocPreview({
-                    recordId: editingBuyerRecordId,
-                    kind: 'agreement',
-                    fileName: name,
-                    fileIndex: item.originalIndex,
-                  })
+                  if (!editingBuyerRecord || !item) return
+                  void handleArchivePublishedDownload(
+                    editingBuyerRecord,
+                    'agreement',
+                    item.originalIndex,
+                  )
                 }}
                 labels={{
                   choose: t('agreementFile'),
@@ -2405,7 +2405,7 @@ export function PortalDashboard() {
                   count: t('agreementFormCount'),
                   selected: t('selectedFile'),
                   currentFile: t('agreementCurrentFile'),
-                  preview: t('agreementPreview'),
+                  preview: t('recordDocDownload'),
                   confirmFile: t('agreementConfirmFile'),
                   cancelPick: t('agreementCancelPick'),
                   previewUnavailable: t('agreementPreviewUnavailable'),
