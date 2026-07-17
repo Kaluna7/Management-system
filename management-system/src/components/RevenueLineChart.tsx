@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import ReactECharts from 'echarts-for-react'
 import * as echarts from 'echarts'
 import type { EChartsOption } from 'echarts'
@@ -99,7 +99,42 @@ function chartPalette(role: 'buyers' | 'finance', isDark: boolean): ChartPalette
       }
 }
 
-/** Point shape for chart rows; chart series uses `[tsMs, amount]`. */
+/** Compact axis labels so long Rupiah strings do not crush the chart on small screens. */
+function formatRpAxis(value: number, compact: boolean) {
+  if (!Number.isFinite(value)) return ''
+  if (!compact) return formatRpId(value)
+  const abs = Math.abs(value)
+  const sign = value < 0 ? '-' : ''
+  if (abs >= 1_000_000_000) {
+    const n = abs / 1_000_000_000
+    return `${sign}${n >= 10 ? n.toFixed(0) : n.toFixed(1).replace(/\.0$/, '')}M`
+  }
+  if (abs >= 1_000_000) {
+    const n = abs / 1_000_000
+    return `${sign}${n >= 10 ? n.toFixed(0) : n.toFixed(1).replace(/\.0$/, '')}jt`
+  }
+  if (abs >= 1_000) {
+    return `${sign}${Math.round(abs / 1_000)}rb`
+  }
+  return `${sign}${Math.round(abs)}`
+}
+
+function useIsCompactChart() {
+  const [compact, setCompact] = useState(() =>
+    typeof window !== 'undefined' ? window.matchMedia('(max-width: 767px)').matches : false,
+  )
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)')
+    const onChange = () => setCompact(mq.matches)
+    onChange()
+    mq.addEventListener('change', onChange)
+    return () => mq.removeEventListener('change', onChange)
+  }, [])
+
+  return compact
+}
+
 type ChartRow = {
   ts: number
   cumulative: number
@@ -124,8 +159,10 @@ function buildChartOption(opts: {
   amountLabel: string
   isDark: boolean
   role: 'buyers' | 'finance'
+  compact: boolean
 }): EChartsOption {
-  const { seriesData, xMin, xMax, yMin, yMax, dateLocale, amountLabel, isDark, role } = opts
+  const { seriesData, xMin, xMax, yMin, yMax, dateLocale, amountLabel, isDark, role, compact } =
+    opts
   const labelSafe = escapeTooltipText(amountLabel)
   const palette = chartPalette(role, isDark)
 
@@ -138,7 +175,7 @@ function buildChartOption(opts: {
           : NaN
     if (Number.isNaN(ms)) return ''
     return new Date(ms).toLocaleDateString(dateLocale, {
-      day: 'numeric',
+      day: compact ? undefined : 'numeric',
       month: 'short',
       year: '2-digit',
     })
@@ -159,9 +196,13 @@ function buildChartOption(opts: {
     animationDuration: 1100,
     animationEasing: 'cubicOut',
     animationDurationUpdate: 450,
-    grid: { left: 8, right: 14, top: 22, bottom: 26, containLabel: true },
+    grid: compact
+      ? { left: 4, right: 8, top: 16, bottom: 8, containLabel: true }
+      : { left: 8, right: 14, top: 22, bottom: 26, containLabel: true },
     tooltip: {
       trigger: 'axis',
+      confine: true,
+      appendToBody: false,
       axisPointer: {
         type: 'line',
         lineStyle: { color: palette.axisPointer, width: 2, opacity: isDark ? 0.7 : 0.55 },
@@ -170,8 +211,8 @@ function buildChartOption(opts: {
       borderColor: tooltipBorder,
       borderWidth: 1,
       borderRadius: 10,
-      padding: [11, 15],
-      textStyle: { color: tooltipText, fontSize: 12 },
+      padding: compact ? [8, 10] : [11, 15],
+      textStyle: { color: tooltipText, fontSize: compact ? 11 : 12 },
       formatter(raw: unknown) {
         const list = Array.isArray(raw) ? raw : [raw]
         const item = list[0] as { value?: unknown } | undefined
@@ -185,9 +226,9 @@ function buildChartOption(opts: {
           minute: '2-digit',
         })
         const money = escapeTooltipText(formatRpId(amount))
-        return `<div style="min-width:176px;line-height:1.35;">
+        return `<div style="min-width:${compact ? 140 : 176}px;max-width:220px;line-height:1.35;">
           <div style="font-size:10px;font-weight:600;letter-spacing:0.06em;text-transform:uppercase;color:${palette.tooltipLabel};">${labelSafe}</div>
-          <div style="font-size:18px;font-weight:700;margin-top:6px;color:${moneyColor};">${money}</div>
+          <div style="font-size:${compact ? 15 : 18}px;font-weight:700;margin-top:6px;color:${moneyColor};word-break:break-word;">${money}</div>
           <div style="margin-top:10px;padding-top:10px;border-top:1px solid ${dividerColor};font-size:11px;color:${whenColor};">${escapeTooltipText(when)}</div>
         </div>`
       },
@@ -197,17 +238,29 @@ function buildChartOption(opts: {
       min: xMin,
       max: xMax,
       axisLine: { lineStyle: { color: axisLine } },
-      axisLabel: { color: axisLabel, fontSize: 10, formatter: fmtDate },
+      axisLabel: {
+        color: axisLabel,
+        fontSize: compact ? 9 : 10,
+        hideOverlap: true,
+        rotate: compact ? 35 : 0,
+        margin: compact ? 10 : 8,
+        formatter: fmtDate,
+      },
       splitLine: { show: false },
     },
     yAxis: {
       type: 'value',
       min: yMin,
       max: yMax,
+      scale: false,
+      splitNumber: compact ? 3 : 5,
       axisLabel: {
         color: axisLabel,
-        fontSize: 10,
-        formatter: (val: number) => formatRpId(val),
+        fontSize: compact ? 9 : 10,
+        hideOverlap: true,
+        width: compact ? 44 : 72,
+        overflow: 'truncate',
+        formatter: (val: number) => formatRpAxis(val, compact || val >= 100_000),
       },
       splitLine: {
         lineStyle: { color: splitLine, type: 'dashed', dashOffset: 0, opacity: isDark ? 1 : 0.72 },
@@ -223,7 +276,7 @@ function buildChartOption(opts: {
         symbol: 'none',
         sampling: 'none',
         lineStyle: {
-          width: 2.6,
+          width: compact ? 2.2 : 2.6,
           color: palette.line,
           cap: 'round',
           join: 'round',
@@ -297,16 +350,24 @@ function ChartTimeRangeToolbar({
   t: (key: StringKey) => string
 }) {
   return (
-    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-      <p className="portal-muted text-[11px] font-semibold uppercase tracking-wide">{t('chartTimeRange')}</p>
-      <div className="flex flex-wrap gap-1.5" role="group" aria-label={t('chartTimeRange')}>
+    <div className="flex min-w-0 flex-col gap-2">
+      <p className="portal-muted text-[11px] font-semibold uppercase tracking-wide">
+        {t('chartTimeRange')}
+      </p>
+      <div
+        className="grid w-full grid-cols-2 gap-1.5 sm:grid-cols-4"
+        role="group"
+        aria-label={t('chartTimeRange')}
+      >
         {RANGE_OPTIONS.map(({ value, labelKey }) => (
           <button
             key={value}
             type="button"
             onClick={() => onRangeChange(value)}
             aria-pressed={range === value}
-            className={range === value ? 'portal-chart-toolbar-active' : 'portal-chart-toolbar-idle'}
+            className={`${
+              range === value ? 'portal-chart-toolbar-active' : 'portal-chart-toolbar-idle'
+            } w-full justify-center text-center`}
           >
             {t(labelKey)}
           </button>
@@ -318,6 +379,7 @@ function ChartTimeRangeToolbar({
 
 export function RevenueLineChart({ records, t, dateLocale, role = 'buyers' }: Props) {
   const { isDark } = useTheme()
+  const compact = useIsCompactChart()
   const [range, setRange] = useState<ArchiveRevenueChartRange>('all')
   const amountLabel = t('chartTooltipAmountLabel')
 
@@ -382,8 +444,9 @@ export function RevenueLineChart({ records, t, dateLocale, role = 'buyers' }: Pr
       amountLabel,
       isDark,
       role,
+      compact,
     })
-  }, [seriesData, xExtent, yExtent, dateLocale, amountLabel, isDark, role])
+  }, [seriesData, xExtent, yExtent, dateLocale, amountLabel, isDark, role, compact])
 
   const showTimeRangeToolbar = fullArchivePointCount > 0
 
@@ -392,7 +455,7 @@ export function RevenueLineChart({ records, t, dateLocale, role = 'buyers' }: Pr
 
   if (!option) {
     return (
-      <div className="w-full space-y-3">
+      <div className="w-full min-w-0 space-y-3">
         {showTimeRangeToolbar ? (
           <ChartTimeRangeToolbar range={range} onRangeChange={setRange} t={t} />
         ) : null}
@@ -402,15 +465,15 @@ export function RevenueLineChart({ records, t, dateLocale, role = 'buyers' }: Pr
   }
 
   return (
-    <div className="w-full space-y-3" role="img" aria-label={t('chartArchiveRevenueTitle')}>
+    <div className="w-full min-w-0 space-y-3" role="img" aria-label={t('chartArchiveRevenueTitle')}>
       {showTimeRangeToolbar ? <ChartTimeRangeToolbar range={range} onRangeChange={setRange} t={t} /> : null}
-      <div className="h-[220px] min-h-[200px] w-full sm:h-[280px] [&_.echarts-for-react]:min-h-[inherit] [&_.echarts-for-react]:h-full">
+      <div className="portal-chart-canvas h-[240px] w-full min-w-0 overflow-hidden sm:h-[280px] md:h-[300px]">
         <ReactECharts
           option={option}
           style={{ height: '100%', width: '100%' }}
           opts={{ renderer: 'svg' }}
-          notMerge={false}
-          lazyUpdate={false}
+          notMerge
+          lazyUpdate
         />
       </div>
     </div>

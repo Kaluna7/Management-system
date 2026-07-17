@@ -47,10 +47,10 @@ function DetailField({
 }) {
   if (!value.trim()) return null
   return (
-    <div>
-      <dt className="text-[10px] font-semibold uppercase tracking-wider text-app-muted">{label}</dt>
+    <div className="min-w-0">
+      <dt className="text-[11px] font-normal text-app-muted">{label}</dt>
       <dd
-        className={`mt-1 text-sm font-medium leading-relaxed text-app-text ${
+        className={`mt-1.5 text-sm font-normal leading-relaxed text-app-text/90 ${
           mono ? 'break-all font-mono text-[13px]' : 'break-words'
         } ${multiline ? 'whitespace-pre-wrap' : ''}`}
       >
@@ -72,7 +72,7 @@ function HeaderBadge({ children, tone }: { children: ReactNode; tone: 'emerald' 
 
   return (
     <span
-      className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-wide ring-1 ring-inset ${toneClass}`}
+      className={`inline-flex shrink-0 items-center rounded-full px-2.5 py-1 text-[10px] font-medium uppercase tracking-wide ring-1 ring-inset ${toneClass}`}
     >
       {children}
     </span>
@@ -93,13 +93,13 @@ function TimelineRow({
   if (!value.trim()) return null
   return (
     <li className="flex gap-3">
-      <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700 sm:h-9 sm:w-9">
         {icon}
       </span>
-      <div className="min-w-0 pt-0.5">
-        <p className="text-[10px] font-semibold uppercase tracking-wider text-app-muted">{label}</p>
+      <div className="min-w-0 flex-1 pt-0.5">
+        <p className="text-[11px] font-normal text-app-muted">{label}</p>
         <p
-          className={`mt-0.5 text-sm font-medium leading-snug text-app-text ${
+          className={`mt-0.5 text-sm font-normal leading-snug text-app-text/90 ${
             mono ? 'break-all font-mono text-[13px]' : 'break-words'
           }`}
           title={value}
@@ -140,25 +140,23 @@ function RecordDocumentsSection({
   if (documents.length === 0) return null
 
   return (
-    <section className="rounded-2xl border border-emerald-200/80 bg-linear-to-br from-emerald-50/70 to-white px-4 py-4 sm:px-5">
-      <h4 className="text-xs font-semibold uppercase tracking-wider text-emerald-800">
-        {t('recordDocumentsTitle')}
-      </h4>
-      <div className="mt-3 grid gap-2 sm:grid-cols-2">
+    <section className="rounded-2xl border border-emerald-200/80 bg-linear-to-br from-emerald-50/70 to-white px-3.5 py-3.5 sm:px-5 sm:py-4">
+      <h4 className="text-[11px] font-normal text-emerald-800/90">{t('recordDocumentsTitle')}</h4>
+      <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
         {documents.map((doc) => (
           <div
             key={`${doc.kind}-${doc.fileIndex ?? 0}-${doc.fileName}`}
-            className="flex min-w-0 flex-col gap-2.5 rounded-xl border border-emerald-200/70 bg-white px-3.5 py-3 shadow-sm"
+            className="flex min-w-0 flex-col gap-2.5 rounded-xl border border-emerald-200/70 bg-white px-3 py-3 sm:px-3.5"
           >
             <div className="flex min-w-0 items-start gap-2.5">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-emerald-100 text-emerald-700">
                 <FileText className="h-4 w-4" aria-hidden strokeWidth={1.75} />
               </span>
               <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold text-emerald-900">
+                <p className="text-xs font-normal text-emerald-900/90">
                   {docCardLabel(doc, documents, recordDocLabel)}
                 </p>
-                <p className="mt-0.5 truncate text-[11px] text-app-muted" title={doc.fileName}>
+                <p className="mt-0.5 truncate text-[11px] font-normal text-app-muted" title={doc.fileName}>
                   {doc.fileName}
                 </p>
               </div>
@@ -167,7 +165,7 @@ function RecordDocumentsSection({
               <button
                 type="button"
                 onClick={() => void onDownloadKind(doc.kind, doc.fileIndex ?? 0)}
-                className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-2.5 py-2 text-[11px] font-semibold text-emerald-800 shadow-sm transition hover:border-emerald-400 hover:bg-emerald-50"
+                className="inline-flex w-full items-center justify-center gap-1.5 rounded-lg border border-emerald-300 bg-white px-2.5 py-2 text-[11px] font-medium text-emerald-800 shadow-sm transition hover:border-emerald-400 hover:bg-emerald-50"
               >
                 <Download className="h-3.5 w-3.5" aria-hidden strokeWidth={1.75} />
                 {t('recordDocDownload')}
@@ -180,7 +178,7 @@ function RecordDocumentsSection({
         <button
           type="button"
           onClick={() => void onDownloadSummary()}
-          className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-300/70 bg-white px-3.5 py-2.5 text-xs font-semibold text-emerald-900 shadow-sm transition hover:border-emerald-400 hover:bg-emerald-50 sm:w-auto"
+          className="mt-3 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-emerald-300/70 bg-white px-3.5 py-2.5 text-xs font-medium text-emerald-900 shadow-sm transition hover:border-emerald-400 hover:bg-emerald-50 sm:w-auto"
         >
           <Download className="h-4 w-4" aria-hidden strokeWidth={1.75} />
           {t('archiveDownloadSummaryOffline')}
@@ -284,11 +282,11 @@ export function FinanceRecordDetailView({
     )
 
   return (
-    <div className="space-y-5">
-      <div className="rounded-2xl border border-emerald-200/70 bg-linear-to-br from-emerald-50/90 to-white px-4 py-4 sm:px-5 sm:py-5">
-        <div className="flex flex-wrap items-start justify-between gap-3">
+    <div className="space-y-3 sm:space-y-4">
+      <div className="rounded-2xl border border-emerald-200/70 bg-linear-to-br from-emerald-50/90 to-white px-3.5 py-3.5 sm:px-5 sm:py-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
           <div className="min-w-0 flex-1">
-            <div className="mb-2 flex flex-wrap items-center gap-2">
+            <div className="mb-2 flex flex-wrap items-center gap-1.5">
               {statusBadge}
               {hasPendingBuyerEditRequest(record) ? (
                 <HeaderBadge tone="amber">{t('buyerEditRequestPending')}</HeaderBadge>
@@ -297,28 +295,28 @@ export function FinanceRecordDetailView({
                 <HeaderBadge tone="violet">{t('buyerEditApprovedBadge')}</HeaderBadge>
               ) : null}
             </div>
-            <h4 className="text-lg font-semibold leading-snug text-app-text">{record.vendorName}</h4>
-            <p className="mt-1 font-mono text-xs text-app-muted">{record.vendorCode}</p>
+            <h4 className="text-base font-semibold leading-snug break-words text-app-text sm:text-lg">
+              {record.vendorName}
+            </h4>
+            <p className="mt-1 font-mono text-xs font-normal text-app-muted">{record.vendorCode}</p>
           </div>
-          <div className="shrink-0 text-right">
-            <p className="text-[10px] font-semibold uppercase tracking-wider text-app-muted">
-              {stripLabelColon(t('detailAmount'))}
-            </p>
-            <p className="mt-0.5 font-mono text-lg font-bold tabular-nums text-emerald-800">
+          <div className="min-w-0 rounded-xl border border-emerald-200/50 bg-white/70 px-3 py-2 sm:shrink-0 sm:border-0 sm:bg-transparent sm:px-0 sm:py-0 sm:text-right">
+            <p className="text-[11px] font-normal text-app-muted">{stripLabelColon(t('detailAmount'))}</p>
+            <p className="mt-0.5 font-mono text-base font-normal tabular-nums text-emerald-800 sm:text-lg">
               {formatAmount(record.amount)}
             </p>
           </div>
         </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2">
-        <div className="rounded-2xl border border-app-border bg-app-bg/50 px-4 py-3.5">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <div className="rounded-2xl border border-app-border bg-app-bg/50 px-3.5 py-3 sm:px-4 sm:py-3.5">
           <DetailField label={stripLabelColon(t('detailIncomeType'))} value={record.incomeType} />
         </div>
-        <div className="rounded-2xl border border-app-border bg-app-bg/50 px-4 py-3.5">
+        <div className="rounded-2xl border border-app-border bg-app-bg/50 px-3.5 py-3 sm:px-4 sm:py-3.5">
           <DetailField label={t('periodRangeLabel')} value={periodRange} />
         </div>
-        <div className="rounded-2xl border border-app-border bg-app-bg/50 px-4 py-3.5 sm:col-span-2">
+        <div className="rounded-2xl border border-app-border bg-app-bg/50 px-3.5 py-3 sm:col-span-2 sm:px-4 sm:py-3.5">
           <DetailField
             label={stripLabelColon(t('detailDescription'))}
             value={record.description}
@@ -338,11 +336,9 @@ export function FinanceRecordDetailView({
       />
 
       {timelineItems.length > 0 ? (
-        <section className="rounded-2xl border border-app-border bg-white px-4 py-4 sm:px-5">
-          <h4 className="mb-4 text-xs font-semibold uppercase tracking-wider text-app-muted">
-            {t('detailSectionTimeline')}
-          </h4>
-          <ul className="space-y-4">
+        <section className="rounded-2xl border border-app-border bg-white px-3.5 py-3.5 sm:px-5 sm:py-4">
+          <h4 className="mb-3 text-[11px] font-normal text-app-muted sm:mb-4">{t('detailSectionTimeline')}</h4>
+          <ul className="space-y-3.5">
             {timelineItems.map((item) => (
               <TimelineRow
                 key={`${item.label}-${item.value}`}

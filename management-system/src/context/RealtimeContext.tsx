@@ -23,28 +23,40 @@ export type RecordWorkingPresence = {
 }
 
 export type InvoiceEditingMap = Record<string, InvoiceEditingEntry>
+export type BuyerEditingEntry = InvoiceEditingEntry
+export type BuyerEditingMap = InvoiceEditingMap
 
 type RealtimeContextValue = {
   socket: Socket | null
   connected: boolean
   invoiceEditing: InvoiceEditingMap
+  buyerEditing: BuyerEditingMap
   emitInvoiceEditingStart: (recordId: string, presence: RecordWorkingPresence) => void
   emitInvoiceEditingStop: (recordId: string) => void
+  emitBuyerEditingStart: (recordId: string, presence: RecordWorkingPresence) => void
+  emitBuyerEditingStop: (recordId: string) => void
 }
 
 const RealtimeContext = createContext<RealtimeContextValue | null>(null)
+
+function parsePresenceMap(payload: unknown): InvoiceEditingMap {
+  if (!payload || typeof payload !== 'object') return {}
+  return payload as InvoiceEditingMap
+}
 
 export function RealtimeProvider({ children }: { children: ReactNode }) {
   const { user, authToken } = useAuth()
   const [socket, setSocket] = useState<Socket | null>(null)
   const [connected, setConnected] = useState(false)
   const [invoiceEditing, setInvoiceEditing] = useState<InvoiceEditingMap>({})
+  const [buyerEditing, setBuyerEditing] = useState<BuyerEditingMap>({})
 
   useEffect(() => {
     if (!user) {
       setSocket(null)
       setConnected(false)
       setInvoiceEditing({})
+      setBuyerEditing({})
       return
     }
 
@@ -57,11 +69,10 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
     instance.on('connect', () => setConnected(true))
     instance.on('disconnect', () => setConnected(false))
     instance.on('invoice-editing:sync', (payload: unknown) => {
-      if (!payload || typeof payload !== 'object') {
-        setInvoiceEditing({})
-        return
-      }
-      setInvoiceEditing(payload as InvoiceEditingMap)
+      setInvoiceEditing(parsePresenceMap(payload))
+    })
+    instance.on('buyer-editing:sync', (payload: unknown) => {
+      setBuyerEditing(parsePresenceMap(payload))
     })
 
     setSocket(instance)
@@ -71,6 +82,7 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
       setSocket(null)
       setConnected(false)
       setInvoiceEditing({})
+      setBuyerEditing({})
     }
   }, [user?.id, authToken, user])
 
@@ -92,15 +104,45 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
     [socket],
   )
 
+  const emitBuyerEditingStart = useCallback(
+    (recordId: string, presence: RecordWorkingPresence) => {
+      socket?.emit('buyer-editing:start', {
+        recordId,
+        userName: presence.userName,
+        avatarPreset: presence.avatarPreset ?? null,
+      })
+    },
+    [socket],
+  )
+
+  const emitBuyerEditingStop = useCallback(
+    (recordId: string) => {
+      socket?.emit('buyer-editing:stop', { recordId })
+    },
+    [socket],
+  )
+
   const value = useMemo(
     () => ({
       socket,
       connected,
       invoiceEditing,
+      buyerEditing,
       emitInvoiceEditingStart,
       emitInvoiceEditingStop,
+      emitBuyerEditingStart,
+      emitBuyerEditingStop,
     }),
-    [socket, connected, invoiceEditing, emitInvoiceEditingStart, emitInvoiceEditingStop],
+    [
+      socket,
+      connected,
+      invoiceEditing,
+      buyerEditing,
+      emitInvoiceEditingStart,
+      emitInvoiceEditingStop,
+      emitBuyerEditingStart,
+      emitBuyerEditingStop,
+    ],
   )
 
   return <RealtimeContext.Provider value={value}>{children}</RealtimeContext.Provider>

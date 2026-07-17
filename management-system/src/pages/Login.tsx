@@ -255,8 +255,8 @@ export function Login() {
               </div>
             </aside>
 
-            <div className="auth-login-panel flex min-h-0 flex-1 flex-col justify-center px-4 py-8 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-14 sm:px-6 sm:py-10 md:px-11 md:py-12 md:pt-12">
-              <div className="mx-auto w-full max-w-md">
+            <div className="auth-login-panel flex min-h-0 flex-1 flex-col justify-center px-4 py-10 pb-[max(2rem,env(safe-area-inset-bottom))] pt-[max(5.5rem,12vh)] sm:px-6 sm:py-12 sm:pt-[max(5rem,10vh)] md:min-h-0 md:justify-center md:px-11 md:py-12 md:pt-12">
+              <div className="mx-auto w-full max-w-md max-md:translate-y-3 md:translate-y-1">
                 <div className="mb-6 text-center md:mb-8 md:text-left">
                   <h2 className="portal-heading text-2xl font-semibold tracking-tight">{panelTitle}</h2>
                   <p className="portal-muted mt-2 text-sm leading-relaxed">{panelSubtitle}</p>

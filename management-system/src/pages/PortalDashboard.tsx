@@ -105,13 +105,6 @@ function formatDate(isoDate: string, dateLocale: string) {
   })
 }
 
-function formatPeriodRange(
-  record: { periodStart: string; periodEnd: string },
-  dateLocale: string,
-) {
-  return `${formatDate(record.periodStart, dateLocale)} – ${formatDate(record.periodEnd, dateLocale)}`
-}
-
 function parseNumberInput(value: string) {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : 0
@@ -290,7 +283,7 @@ function FinanceTaskRow({
         </div>
       ) : null}
       <div
-        className={`portal-table-row portal-table-row--task relative ${zebraClass} ${rowBlocked ? 'z-20 opacity-60' : ''} ${pendingBuyerEdit ? '!border-amber-200 dark:!border-amber-500/30' : ''} ${taskPaused ? 'bg-slate-100/90 dark:bg-slate-800/40' : ''}`}
+        className={`portal-table-row portal-table-row--task relative ${zebraClass} ${rowBlocked ? 'z-20' : ''} ${pendingBuyerEdit ? '!border-amber-200 dark:!border-amber-500/30' : ''} ${taskPaused ? 'bg-slate-100/90 dark:bg-slate-800/40' : ''}`}
       >
         <div className="portal-table-td min-w-0">
           <p className="truncate font-semibold portal-heading">{record.vendorName}</p>
@@ -308,7 +301,17 @@ function FinanceTaskRow({
         <div className="portal-table-td min-w-0">
           <p className="truncate text-xs portal-muted">{financeByText}</p>
         </div>
-        <div className={`portal-table-td flex min-w-0 flex-wrap gap-1.5 ${rowBlocked ? 'pointer-events-none' : ''}`}>
+        <div className={`portal-table-td flex min-w-0 flex-wrap items-center gap-1.5 ${rowBlocked && !remoteWorking ? 'pointer-events-none' : ''}`}>
+          {remoteWorking ? (
+            <RecordWorkingOverlay
+              variant="inline"
+              processingLabel={processingLabel}
+              userName={remoteWorking.userName}
+              avatarPreset={remoteWorking.avatarPreset}
+              title={overlayTitle}
+            />
+          ) : (
+            <>
           <button
             type="button"
             onClick={() => {
@@ -361,15 +364,9 @@ function FinanceTaskRow({
             }}
             icon={<FileUp className="h-3.5 w-3.5" aria-hidden strokeWidth={1.75} />}
           />
+            </>
+          )}
         </div>
-        {remoteWorking ? (
-          <RecordWorkingOverlay
-            processingLabel={processingLabel}
-            userName={remoteWorking.userName}
-            avatarPreset={remoteWorking.avatarPreset}
-            title={overlayTitle}
-          />
-        ) : null}
       </div>
     </div>
   )
@@ -392,7 +389,14 @@ export function PortalDashboard() {
     requestBuyerEditPermission,
     resolveBuyerEditRequest,
   } = useWorkflow()
-  const { invoiceEditing, emitInvoiceEditingStart, emitInvoiceEditingStop } = useRealtime()
+  const {
+    invoiceEditing,
+    buyerEditing,
+    emitInvoiceEditingStart,
+    emitInvoiceEditingStop,
+    emitBuyerEditingStart,
+    emitBuyerEditingStop,
+  } = useRealtime()
   const {
     success: publishSuccess,
     dismissSuccess,
@@ -822,6 +826,20 @@ export function PortalDashboard() {
   ])
 
   useEffect(() => {
+    if (userRole !== 'buyers' || !editingBuyerRecordId) return
+    emitBuyerEditingStart(editingBuyerRecordId, financeWorkingPresence)
+    return () => {
+      emitBuyerEditingStop(editingBuyerRecordId)
+    }
+  }, [
+    userRole,
+    editingBuyerRecordId,
+    financeWorkingPresence,
+    emitBuyerEditingStart,
+    emitBuyerEditingStop,
+  ])
+
+  useEffect(() => {
     if (!location.pathname.replace(/\/+$/, '').endsWith('/task')) {
       setFinanceEngagedRecordId(null)
     }
@@ -832,10 +850,16 @@ export function PortalDashboard() {
   }, [])
 
   const isRecordBlockedByOther = useCallback(
-    (recordId: string) =>
-      userRole === 'finance' &&
-      Boolean(recordWorkingByOther(recordId, currentUserId, invoiceEditing)),
-    [userRole, currentUserId, invoiceEditing],
+    (recordId: string) => {
+      if (userRole === 'finance') {
+        return Boolean(recordWorkingByOther(recordId, currentUserId, invoiceEditing))
+      }
+      if (userRole === 'buyers') {
+        return Boolean(recordWorkingByOther(recordId, currentUserId, buyerEditing))
+      }
+      return false
+    },
+    [userRole, currentUserId, invoiceEditing, buyerEditing],
   )
 
   const tryOpenDetail = useCallback(
@@ -847,15 +871,30 @@ export function PortalDashboard() {
   )
 
   useEffect(() => {
-    if (userRole !== 'finance') return
-    if (detailRecordId && isRecordBlockedByOther(detailRecordId)) {
-      setDetailRecordId(null)
+    if (userRole === 'finance') {
+      if (detailRecordId && isRecordBlockedByOther(detailRecordId)) {
+        setDetailRecordId(null)
+      }
+      if (isInvoiceModalOpen && selectedRecord && isRecordBlockedByOther(selectedRecord.id)) {
+        setIsInvoiceModalOpen(false)
+      }
+      if (taskInvoicePrintRecordId && isRecordBlockedByOther(taskInvoicePrintRecordId)) {
+        setTaskInvoicePrintRecordId(null)
+      }
+      return
     }
-    if (isInvoiceModalOpen && selectedRecord && isRecordBlockedByOther(selectedRecord.id)) {
-      setIsInvoiceModalOpen(false)
-    }
-    if (taskInvoicePrintRecordId && isRecordBlockedByOther(taskInvoicePrintRecordId)) {
-      setTaskInvoicePrintRecordId(null)
+    if (userRole === 'buyers') {
+      if (detailRecordId && isRecordBlockedByOther(detailRecordId)) {
+        setDetailRecordId(null)
+      }
+      if (
+        isCreateModalOpen &&
+        editingBuyerRecordId &&
+        isRecordBlockedByOther(editingBuyerRecordId)
+      ) {
+        setIsCreateModalOpen(false)
+        setEditingBuyerRecordId(null)
+      }
     }
   }, [
     userRole,
@@ -863,6 +902,8 @@ export function PortalDashboard() {
     isInvoiceModalOpen,
     selectedRecord,
     taskInvoicePrintRecordId,
+    isCreateModalOpen,
+    editingBuyerRecordId,
     isRecordBlockedByOther,
   ])
 
@@ -903,6 +944,7 @@ export function PortalDashboard() {
   }
 
   function openBuyerEditModal(record: BuyerRecord) {
+    if (isRecordBlockedByOther(record.id)) return
     setEditingBuyerRecordId(record.id)
     setSelectedVendorCode(record.vendorCode)
     setAmountEarnedInput(formatIdrAmountInputValue(record.amount))
@@ -1224,7 +1266,7 @@ export function PortalDashboard() {
         onNotificationRecordSelect={handleNotificationRecordSelect}
       >
           {!hideDashboardSummary ? (
-            <section className={`portal-card p-6`}>
+            <section className={`portal-card p-4 sm:p-6`}>
               <h2 className="mb-4 text-base font-semibold portal-heading">{t('summaryTitle')}</h2>
               <div className="grid gap-3 sm:grid-cols-2">
                 {summaryCards.map((card) => {
@@ -1257,15 +1299,17 @@ export function PortalDashboard() {
           ) : null}
 
           {!hideArchiveRevenueChart ? (
-            <section className={`portal-card p-6`}>
-              <div className="mb-4">
+            <section className={`portal-card p-4 sm:p-6`}>
+              <div className="mb-4 min-w-0">
                 <h2 className="text-base font-semibold portal-heading">{t('chartArchiveRevenueTitle')}</h2>
-                <p className="portal-muted mt-1 text-xs sm:text-sm">{t('chartArchiveRevenueSubtitle')}</p>
+                <p className="portal-muted mt-1 text-xs leading-relaxed sm:text-sm">{t('chartArchiveRevenueSubtitle')}</p>
                 <p className="portal-accent mt-0.5 text-[10px] font-medium uppercase tracking-wide sm:text-xs">
                   {t('chartCumulativeLabel')}
                 </p>
               </div>
-              <RevenueLineChart records={records} t={t} dateLocale={dateLocale} role={userRole} />
+              <div className="min-w-0 overflow-hidden">
+                <RevenueLineChart records={records} t={t} dateLocale={dateLocale} role={userRole} />
+              </div>
             </section>
           ) : null}
 
@@ -1273,7 +1317,7 @@ export function PortalDashboard() {
             <Route
               index
               element={
-                <section className={`portal-card p-6`}>
+                <section className={`portal-card p-4 sm:p-6`}>
                   <h2 className="mb-4 text-base font-semibold portal-heading">
                     {userRole === 'buyers' ? t('listBuyersLatest') : t('listBuyersFinance')}
                   </h2>
@@ -1306,7 +1350,7 @@ export function PortalDashboard() {
                         >
                           <div className="portal-table-th">{t('vendorName')}</div>
                           <div className="portal-table-th">{t('recordTableColPeriod')}</div>
-                          <div className="portal-table-th">{t('statusLabel')}</div>
+                          <div className="portal-table-th">{t('statusLabel').replace(/:$/, '')}</div>
                           {userRole === 'buyers' ? (
                             <div className="portal-table-th">{t('recordTableColDocuments')}</div>
                           ) : null}
@@ -1349,11 +1393,13 @@ export function PortalDashboard() {
                             const remoteWorking =
                               userRole === 'finance'
                                 ? recordWorkingByOther(record.id, currentUserId, invoiceEditing)
-                                : null
+                                : userRole === 'buyers'
+                                  ? recordWorkingByOther(record.id, currentUserId, buyerEditing)
+                                  : null
                             const blocked = Boolean(remoteWorking)
                             const recordDocuments =
                               userRole === 'buyers' ? listRecordDocuments(record) : []
-                            const rowClass = `${zebraClass} ${userRole === 'buyers' ? 'portal-table-row--overview-buyer' : 'portal-table-row--overview-finance'} ${blocked ? 'z-20 opacity-60' : 'portal-table-row--clickable'}`
+                            const rowClass = `${zebraClass} ${userRole === 'buyers' ? 'portal-table-row--overview-buyer' : 'portal-table-row--overview-finance'} ${blocked ? 'z-20' : 'portal-table-row--clickable'}`
                             return (
                               <div
                                 key={record.id}
@@ -1373,45 +1419,76 @@ export function PortalDashboard() {
                                 }}
                               >
                                 <div className="portal-table-td">
-                                  <p className="truncate font-semibold portal-heading">{record.vendorName}</p>
-                                  <p className="portal-muted truncate text-xs">{record.vendorCode}</p>
+                                  <p className="truncate font-medium portal-heading">{record.vendorName}</p>
+                                  <p className="portal-muted truncate text-xs font-normal">{record.vendorCode}</p>
                                 </div>
-                                <div className="portal-table-td text-sm portal-body">
-                                  {formatPeriodRange(record, dateLocale)}
+                                <div className="portal-table-td portal-table-td-period portal-body font-normal">
+                                  <span className="portal-table-td-period-start">
+                                    {formatDate(record.periodStart, dateLocale)}
+                                  </span>
+                                  <span className="portal-table-td-period-sep"> – </span>
+                                  <span className="portal-table-td-period-end">
+                                    {formatDate(record.periodEnd, dateLocale)}
+                                  </span>
                                 </div>
-                                <div className="portal-table-td">{statusBadge}</div>
+                                <div className="portal-table-td">
+                                  {userRole === 'finance' && blocked && remoteWorking ? (
+                                    <RecordWorkingOverlay
+                                      variant="inline"
+                                      processingLabel={t('recordProcessing')}
+                                      userName={remoteWorking.userName}
+                                      avatarPreset={remoteWorking.avatarPreset}
+                                      title={t('recordWorkingBy').replace(
+                                        '{name}',
+                                        remoteWorking.userName,
+                                      )}
+                                    />
+                                  ) : (
+                                    <div className="flex min-w-0 flex-wrap gap-1">{statusBadge}</div>
+                                  )}
+                                </div>
                                 {userRole === 'buyers' ? (
                                   <div
-                                    className="portal-table-td"
+                                    className={`portal-table-td portal-table-td--docs ${blocked ? 'portal-table-td--presence' : ''}`}
                                     onClick={(e) => e.stopPropagation()}
                                     onKeyDown={(e) => e.stopPropagation()}
                                   >
-                                    {recordDocuments.length > 0 ? (
-                                      <div className="flex flex-wrap gap-1">
+                                    {blocked && remoteWorking ? (
+                                      <RecordWorkingOverlay
+                                        variant="inline"
+                                        processingLabel={t('recordProcessing')}
+                                        userName={remoteWorking.userName}
+                                        avatarPreset={remoteWorking.avatarPreset}
+                                        title={t('recordWorkingBy').replace(
+                                          '{name}',
+                                          remoteWorking.userName,
+                                        )}
+                                      />
+                                    ) : recordDocuments.length > 0 ? (
+                                      <div className="flex flex-wrap content-start gap-1.5">
                                         {recordDocuments.map((doc) => (
                                           <button
                                             key={`${doc.kind}-${doc.fileIndex ?? 0}-${doc.fileName}`}
                                             type="button"
-                                            disabled={blocked}
-                                            onClick={() => openDocPreview(record.id, doc.kind, doc.fileName, doc.fileIndex ?? 0)}
-                                            className="portal-btn-secondary px-2 py-1 text-[10px] font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                                            onClick={() =>
+                                              openDocPreview(
+                                                record.id,
+                                                doc.kind,
+                                                doc.fileName,
+                                                doc.fileIndex ?? 0,
+                                              )
+                                            }
+                                            className="portal-btn-secondary shrink-0 px-2 py-1 text-[10px] font-medium"
+                                            title={doc.fileName}
                                           >
                                             {recordDocLabel(doc.kind)}
                                           </button>
                                         ))}
                                       </div>
                                     ) : (
-                                      <span className="text-xs portal-muted">—</span>
+                                      <span className="text-xs font-normal portal-muted">—</span>
                                     )}
                                   </div>
-                                ) : null}
-                                {remoteWorking ? (
-                                  <RecordWorkingOverlay
-                                    processingLabel={t('recordProcessing')}
-                                    userName={remoteWorking.userName}
-                                    avatarPreset={remoteWorking.avatarPreset}
-                                    title={t('recordWorkingBy').replace('{name}', remoteWorking.userName)}
-                                  />
                                 ) : null}
                               </div>
                             )
@@ -1442,7 +1519,7 @@ export function PortalDashboard() {
               path="task"
               element={
                 userRole === 'finance' ? (
-                  <section className={`portal-card p-6`}>
+                  <section className={`portal-card p-4 sm:p-6`}>
                     <h2 className="mb-4 text-base font-semibold portal-heading">{t('taskPageTitle')}</h2>
                     <p className="portal-body mb-4 text-sm">
                       {t('taskPageSubtitle')}
@@ -1558,7 +1635,7 @@ export function PortalDashboard() {
               path="archive"
               element={
                 userRole === 'finance' ? (
-                  <section className={`portal-card p-6`}>
+                  <section className={`portal-card p-4 sm:p-6`}>
                     <h2 className="mb-4 text-base font-semibold portal-heading">{t('archivePageTitle')}</h2>
                     <p className="portal-body mb-4 text-sm">{t('archivePageSubtitle')}</p>
                     <div className="portal-filter-panel mb-5 flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
@@ -1645,7 +1722,7 @@ export function PortalDashboard() {
                                 invoiceEditing,
                               )
                               const blocked = Boolean(remoteWorking)
-                              const rowClass = `${zebraClass} ${blocked ? 'z-20 opacity-60' : 'portal-table-row--clickable'}`
+                              const rowClass = `${zebraClass} ${blocked ? 'z-20' : 'portal-table-row--clickable'}`
                               return (
                                 <div
                                   key={record.id}
@@ -1695,11 +1772,22 @@ export function PortalDashboard() {
                                     )}
                                   </div>
                                   <div
-                                    className="portal-table-td flex min-w-0 flex-wrap gap-1"
+                                    className={`portal-table-td flex min-w-0 flex-wrap gap-1 ${blocked && remoteWorking ? 'portal-table-td--presence' : ''}`}
                                     onClick={(e) => e.stopPropagation()}
                                     onKeyDown={(e) => e.stopPropagation()}
                                   >
-                                    {isPublished ? (
+                                    {blocked && remoteWorking ? (
+                                      <RecordWorkingOverlay
+                                        variant="inline"
+                                        processingLabel={t('recordProcessing')}
+                                        userName={remoteWorking.userName}
+                                        avatarPreset={remoteWorking.avatarPreset}
+                                        title={t('recordWorkingBy').replace(
+                                          '{name}',
+                                          remoteWorking.userName,
+                                        )}
+                                      />
+                                    ) : isPublished ? (
                                       apiConnected ? (
                                         <>
                                           <button
@@ -1782,14 +1870,6 @@ export function PortalDashboard() {
                                       </button>
                                     )}
                                   </div>
-                                  {remoteWorking ? (
-                                    <RecordWorkingOverlay
-                                      processingLabel={t('recordProcessing')}
-                                      userName={remoteWorking.userName}
-                                      avatarPreset={remoteWorking.avatarPreset}
-                                      title={t('recordWorkingBy').replace('{name}', remoteWorking.userName)}
-                                    />
-                                  ) : null}
                                 </div>
                               )
                             })}
@@ -1819,7 +1899,7 @@ export function PortalDashboard() {
               path="history"
               element={
                 userRole === 'buyers' ? (
-                  <section className={`portal-card p-6`}>
+                  <section className={`portal-card p-4 sm:p-6`}>
                     <h2 className="mb-4 text-base font-semibold portal-heading">{t('historyPageTitle')}</h2>
                     <p className="portal-body mb-4 text-sm">{t('historyPageSubtitleBuyers')}</p>
                     <RecordListFilterBar
@@ -1897,13 +1977,14 @@ export function PortalDashboard() {
                                     onKeyDown={(e) => e.stopPropagation()}
                                   >
                                     {recordDocuments.length > 0 ? (
-                                      <div className="flex flex-wrap gap-1">
+                                      <div className="flex flex-wrap gap-1.5">
                                         {recordDocuments.map((doc) => (
                                           <button
                                             key={`${doc.kind}-${doc.fileIndex ?? 0}-${doc.fileName}`}
                                             type="button"
                                             onClick={() => openDocPreview(record.id, doc.kind, doc.fileName, doc.fileIndex ?? 0)}
-                                            className="portal-btn-secondary px-2 py-1 text-[10px] font-semibold"
+                                            className="portal-btn-secondary shrink-0 px-2 py-1 text-[10px] font-medium"
+                                            title={doc.fileName}
                                           >
                                             {recordDocLabel(doc.kind)}
                                           </button>
@@ -2405,13 +2486,15 @@ export function PortalDashboard() {
       ) : null}
 
       {detailRecord ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center portal-overlay p-4 backdrop-blur-sm">
-          <div className="portal-modal flex max-h-[min(92vh,820px)] w-full max-w-3xl flex-col overflow-hidden">
-            <div className="portal-divider flex shrink-0 items-center justify-between border-b px-5 py-4 sm:px-6">
-              <h3 className="portal-heading text-lg font-medium">{t('detailTitle')}</h3>
+        <div className="fixed inset-0 z-50 flex items-end justify-center portal-overlay p-0 backdrop-blur-sm sm:items-center sm:p-4">
+          <div className="portal-modal flex max-h-[min(96dvh,920px)] w-full max-w-3xl flex-col overflow-hidden rounded-t-2xl sm:rounded-2xl max-sm:max-h-[92dvh] max-sm:border-x-0 max-sm:border-b-0">
+            <div className="portal-divider flex shrink-0 items-center justify-between gap-3 border-b px-4 py-3 sm:px-6 sm:py-4">
+              <h3 className="portal-heading min-w-0 truncate text-base font-semibold sm:text-lg">
+                {t('detailTitle')}
+              </h3>
               <ModalCloseButton onClick={() => setDetailRecordId(null)} label={t('close')} />
             </div>
-            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-6 sm:py-5">
               {userRole === 'buyers' ? (
                 <BuyerRecordDetailView
                   record={detailRecord}

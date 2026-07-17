@@ -26,12 +26,17 @@ function isFinancePortalRole(role) {
   return role === "finance" || role === "finance_admin";
 }
 
+function isBuyerPortalRole(role) {
+  return role === "buyers" || role === "buyers_admin";
+}
+
 function isPortalRole(role) {
-  return role === "buyers" || role === "finance" || role === "buyers_admin" || role === "finance_admin";
+  return isBuyerPortalRole(role) || isFinancePortalRole(role);
 }
 
 module.exports = {
   verifySocketToken,
   isFinancePortalRole,
+  isBuyerPortalRole,
   isPortalRole,
 };

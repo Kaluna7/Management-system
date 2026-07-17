@@ -1,14 +1,20 @@
-const { verifySocketToken, isFinancePortalRole, isPortalRole } = require("./socketAuth");
+const {
+  verifySocketToken,
+  isFinancePortalRole,
+  isBuyerPortalRole,
+} = require("./socketAuth");
 
 /** @type {import('socket.io').Server | null} */
 let io = null;
 
 /** recordId -> { userId, userName, avatarPreset, socketId } */
 const invoiceEditingByRecord = new Map();
+/** recordId -> { userId, userName, avatarPreset, socketId } */
+const buyerEditingByRecord = new Map();
 
-function presenceSnapshot() {
+function mapToPresenceSnapshot(map) {
   const out = {};
-  for (const [recordId, entry] of invoiceEditingByRecord) {
+  for (const [recordId, entry] of map) {
     out[recordId] = {
       userId: entry.userId,
       userName: entry.userName,
@@ -20,18 +26,23 @@ function presenceSnapshot() {
 
 function broadcastInvoicePresence() {
   if (!io) return;
-  io.to("portal").emit("invoice-editing:sync", presenceSnapshot());
+  io.to("portal").emit("invoice-editing:sync", mapToPresenceSnapshot(invoiceEditingByRecord));
 }
 
-function clearSocketFromInvoiceEditing(socketId) {
+function broadcastBuyerPresence() {
+  if (!io) return;
+  io.to("portal").emit("buyer-editing:sync", mapToPresenceSnapshot(buyerEditingByRecord));
+}
+
+function clearSocketFromMap(map, socketId, broadcast) {
   let changed = false;
-  for (const [recordId, entry] of invoiceEditingByRecord) {
+  for (const [recordId, entry] of map) {
     if (entry.socketId === socketId) {
-      invoiceEditingByRecord.delete(recordId);
+      map.delete(recordId);
       changed = true;
     }
   }
-  if (changed) broadcastInvoicePresence();
+  if (changed) broadcast();
 }
 
 /**
@@ -56,10 +67,11 @@ function initRealtime(serverIo) {
   io.on("connection", (socket) => {
     socket.join("portal");
     const role = socket.data.role;
-    if (role === "buyers" || role === "buyers_admin") socket.join("portal:buyers");
+    if (isBuyerPortalRole(role)) socket.join("portal:buyers");
     if (isFinancePortalRole(role)) socket.join("portal:finance");
 
-    socket.emit("invoice-editing:sync", presenceSnapshot());
+    socket.emit("invoice-editing:sync", mapToPresenceSnapshot(invoiceEditingByRecord));
+    socket.emit("buyer-editing:sync", mapToPresenceSnapshot(buyerEditingByRecord));
 
     socket.on("invoice-editing:start", (payload) => {
       if (!isFinancePortalRole(socket.data.role)) return;
@@ -88,8 +100,36 @@ function initRealtime(serverIo) {
       }
     });
 
+    socket.on("buyer-editing:start", (payload) => {
+      if (!isBuyerPortalRole(socket.data.role)) return;
+      const recordId = String(payload?.recordId ?? "").trim();
+      const userName = String(payload?.userName ?? "Buyer").trim() || "Buyer";
+      const avatarPreset = payload?.avatarPreset == null ? null : String(payload.avatarPreset).trim() || null;
+      if (!recordId) return;
+      const existing = buyerEditingByRecord.get(recordId);
+      if (existing && existing.userId !== socket.data.userId) return;
+      buyerEditingByRecord.set(recordId, {
+        userId: socket.data.userId,
+        userName,
+        avatarPreset,
+        socketId: socket.id,
+      });
+      broadcastBuyerPresence();
+    });
+
+    socket.on("buyer-editing:stop", (payload) => {
+      const recordId = String(payload?.recordId ?? "").trim();
+      if (!recordId) return;
+      const entry = buyerEditingByRecord.get(recordId);
+      if (entry && entry.socketId === socket.id) {
+        buyerEditingByRecord.delete(recordId);
+        broadcastBuyerPresence();
+      }
+    });
+
     socket.on("disconnect", () => {
-      clearSocketFromInvoiceEditing(socket.id);
+      clearSocketFromMap(invoiceEditingByRecord, socket.id, broadcastInvoicePresence);
+      clearSocketFromMap(buyerEditingByRecord, socket.id, broadcastBuyerPresence);
     });
   });
 }

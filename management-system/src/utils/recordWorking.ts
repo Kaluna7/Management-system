@@ -1,6 +1,6 @@
 import type { InvoiceEditingMap, InvoiceEditingEntry } from '../context/RealtimeContext'
 
-/** Another finance user is working on this record (not the current user). */
+/** Another user is working on this record (not the current user). */
 export function recordWorkingByOther(
   recordId: string,
   currentUserId: string | undefined,

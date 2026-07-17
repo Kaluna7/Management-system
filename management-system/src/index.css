@@ -163,10 +163,11 @@
 
   .portal-table-wrap {
     @apply overflow-x-auto rounded-xl border border-app-border;
+    -webkit-overflow-scrolling: touch;
   }
 
   .portal-table {
-    @apply min-w-full text-sm;
+    @apply w-full text-sm;
   }
 
   .portal-table-head {
@@ -186,23 +187,28 @@
   }
 
   .portal-table-row--overview-buyer {
-    grid-template-columns: minmax(160px, 2fr) minmax(160px, 1.4fr) minmax(130px, 1.1fr) minmax(120px, 1fr);
+    grid-template-columns: minmax(160px, 1.7fr) minmax(150px, 1.2fr) minmax(110px, 0.9fr) minmax(150px, 1.2fr);
+    min-width: 700px;
   }
 
   .portal-table-row--overview-finance {
-    grid-template-columns: minmax(160px, 2fr) minmax(160px, 1.4fr) minmax(130px, 1.1fr);
+    grid-template-columns: minmax(160px, 1.8fr) minmax(150px, 1.25fr) minmax(120px, 1fr);
+    min-width: 560px;
   }
 
   .portal-table-row--task {
-    grid-template-columns: minmax(150px, 1.4fr) minmax(130px, 1.2fr) minmax(110px, 1fr) minmax(240px, 2fr);
+    grid-template-columns: minmax(130px, 1.4fr) minmax(110px, 1.1fr) minmax(100px, 1fr) minmax(200px, 2fr);
+    min-width: 720px;
   }
 
   .portal-table-row--history {
-    grid-template-columns: minmax(160px, 2fr) minmax(110px, 1fr) minmax(100px, 0.9fr) minmax(120px, 1fr);
+    grid-template-columns: minmax(140px, 2fr) minmax(100px, 1fr) minmax(90px, 0.9fr) minmax(110px, 1fr);
+    min-width: 560px;
   }
 
   .portal-table-row--archive {
-    grid-template-columns: minmax(150px, 1.6fr) minmax(90px, 0.9fr) minmax(110px, 1fr) minmax(90px, 0.85fr) minmax(200px, 1.9fr);
+    grid-template-columns: minmax(130px, 1.5fr) minmax(80px, 0.85fr) minmax(100px, 1fr) minmax(80px, 0.8fr) minmax(180px, 1.8fr);
+    min-width: 760px;
   }
 
   .portal-table-row--clickable {
@@ -213,12 +219,108 @@
     @apply min-w-0 py-0.5;
   }
 
+  .portal-table-td--docs {
+    @apply relative z-[1];
+  }
+
+  .portal-table-td--presence {
+    @apply relative z-10 flex items-center justify-end gap-2;
+  }
+
+  .portal-table-td-period {
+    @apply text-sm leading-snug;
+  }
+
+  .portal-table-td-period-start,
+  .portal-table-td-period-end {
+    @apply block sm:inline;
+  }
+
+  .portal-table-td-period-sep {
+    @apply hidden sm:inline;
+  }
+
   .portal-table-group:last-child .portal-table-row:last-child {
     @apply border-b-0;
   }
 
   .portal-table-banner {
     @apply border-b border-app-border/60 px-3 py-3;
+  }
+
+  /* Mobile: stack rows as cards so columns don't crush */
+  @media (max-width: 767px) {
+    .portal-table-wrap {
+      @apply overflow-visible border-0 bg-transparent;
+    }
+
+    .portal-table-head {
+      display: none;
+    }
+
+    .portal-table-body {
+      @apply flex flex-col gap-3;
+    }
+
+    .portal-table-row,
+    .portal-table-row--overview-buyer,
+    .portal-table-row--overview-finance,
+    .portal-table-row--task,
+    .portal-table-row--history,
+    .portal-table-row--archive {
+      grid-template-columns: 1fr;
+      min-width: 0;
+      @apply gap-y-2 rounded-xl border border-app-border bg-app-card px-3.5 py-3 shadow-sm;
+      border-bottom-width: 1px;
+    }
+
+    .portal-table-row:last-child {
+      border-bottom-width: 1px;
+    }
+
+    .portal-table-group {
+      @apply overflow-hidden rounded-xl border border-app-border bg-app-card shadow-sm;
+    }
+
+    .portal-table-group .portal-table-banner {
+      @apply rounded-none border-0 border-b border-app-border;
+    }
+
+    .portal-table-group .portal-table-row {
+      @apply rounded-none border-0 shadow-none;
+      min-width: 0;
+    }
+
+    .portal-table-td-period-end {
+      @apply text-app-muted;
+    }
+  }
+
+  @media (min-width: 768px) {
+    .portal-table-row--overview-buyer {
+      grid-template-columns: minmax(180px, 1.7fr) minmax(160px, 1.25fr) minmax(120px, 0.9fr) minmax(160px, 1.2fr);
+      min-width: 0;
+    }
+
+    .portal-table-row--overview-finance {
+      grid-template-columns: minmax(180px, 1.8fr) minmax(160px, 1.3fr) minmax(130px, 1fr);
+      min-width: 0;
+    }
+
+    .portal-table-row--task {
+      grid-template-columns: minmax(140px, 1.35fr) minmax(120px, 1.1fr) minmax(100px, 0.95fr) minmax(220px, 2fr);
+      min-width: 0;
+    }
+
+    .portal-table-row--history {
+      grid-template-columns: minmax(160px, 2fr) minmax(110px, 1fr) minmax(100px, 0.9fr) minmax(120px, 1fr);
+      min-width: 0;
+    }
+
+    .portal-table-row--archive {
+      grid-template-columns: minmax(140px, 1.5fr) minmax(90px, 0.85fr) minmax(110px, 1fr) minmax(90px, 0.8fr) minmax(200px, 1.8fr);
+      min-width: 0;
+    }
   }
 
   .portal-stat-icon {
@@ -295,11 +397,19 @@
   }
 
   .portal-chart-toolbar-idle {
-    @apply rounded-lg border border-app-border bg-app-card px-2.5 py-1.5 text-xs font-medium text-app-text transition hover:border-primary/25 hover:bg-primary-light/50 sm:px-3;
+    @apply inline-flex items-center rounded-lg border border-app-border bg-app-card px-2.5 py-1.5 text-xs font-medium text-app-text transition hover:border-primary/25 hover:bg-primary-light/50 sm:px-3;
   }
 
   .portal-chart-toolbar-active {
-    @apply rounded-lg bg-primary px-2.5 py-1.5 text-xs font-medium text-white shadow-sm sm:px-3;
+    @apply inline-flex items-center rounded-lg bg-primary px-2.5 py-1.5 text-xs font-medium text-white shadow-sm sm:px-3;
+  }
+
+  .portal-chart-canvas {
+    @apply min-w-0;
+  }
+
+  .portal-chart-canvas .echarts-for-react {
+    @apply h-full! w-full! min-h-0!;
   }
 
   .portal-divider {
