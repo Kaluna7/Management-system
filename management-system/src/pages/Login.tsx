@@ -37,8 +37,6 @@ export function Login() {
   const [password, setPassword] = useState('')
   const [signupEmail, setSignupEmail] = useState('')
   const [signupUsername, setSignupUsername] = useState('')
-  const [signupPassword, setSignupPassword] = useState('')
-  const [signupPasswordConfirm, setSignupPasswordConfirm] = useState('')
   const [verifyCode, setVerifyCode] = useState('')
   const [sentToHint, setSentToHint] = useState<string | null>(null)
   const [cooldownSec, setCooldownSec] = useState(0)
@@ -47,8 +45,6 @@ export function Login() {
   const lottieContainerRef = useRef<HTMLDivElement>(null)
   const panelStripRef = useRef<HTMLDivElement>(null)
   const [showPassword, setShowPassword] = useState(false)
-  const [showSignupPassword, setShowSignupPassword] = useState(false)
-  const [showSignupPasswordConfirm, setShowSignupPasswordConfirm] = useState(false)
   const [enableLottie, setEnableLottie] = useState(
     () => typeof window !== 'undefined' && window.matchMedia('(min-width: 768px)').matches,
   )
@@ -142,16 +138,8 @@ export function Login() {
       setError(t('selectRoleUsernameInvalid'))
       return
     }
-    if (signupPassword.length < 8) {
-      setError(t('selectRolePasswordHint'))
-      return
-    }
-    if (signupPassword !== signupPasswordConfirm) {
-      setError(t('selectRolePasswordMismatch'))
-      return
-    }
     setSignupBusy(true)
-    const result = await sendEmailSignupCode(signupEmail, u, signupPassword)
+    const result = await sendEmailSignupCode(signupEmail, u)
     setSignupBusy(false)
     if (result.ok === false) {
       if (result.retryAfter != null && result.retryAfter > 0) {
@@ -178,19 +166,16 @@ export function Login() {
       setError(result.message)
       return
     }
-    navigate('/select-role?step=3', { replace: true })
+    navigate('/select-role?step=2', { replace: true })
   }
 
   async function onResendVerify() {
     if (cooldownSec > 0) return
     setError(null)
     setSignupBusy(true)
-    const result = await sendEmailSignupCode(
-      signupEmail,
-      signupUsername.trim().toLowerCase(),
-      signupPassword,
-      { force: true },
-    )
+    const result = await sendEmailSignupCode(signupEmail, signupUsername.trim().toLowerCase(), {
+      force: true,
+    })
     setSignupBusy(false)
     if (result.ok === false) {
       if (result.retryAfter != null && result.retryAfter > 0) {
@@ -371,58 +356,6 @@ export function Login() {
                             required
                             className="portal-input rounded-xl px-4 py-3 font-mono text-sm focus:ring-4"
                           />
-                        </label>
-
-                        <label className="block space-y-2">
-                          <span className="portal-subheading text-sm font-medium">{t('selectRolePasswordLabel')}</span>
-                          <div className="relative">
-                            <input
-                              type={showSignupPassword ? 'text' : 'password'}
-                              autoComplete="new-password"
-                              value={signupPassword}
-                              onChange={(e) => setSignupPassword(e.target.value)}
-                              required
-                              className="portal-input w-full rounded-xl py-3 pl-4 pr-11 text-sm focus:ring-4"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => setShowSignupPassword((v) => !v)}
-                              className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-slate-400"
-                              aria-label={showSignupPassword ? t('loginHidePassword') : t('loginShowPassword')}
-                            >
-                              {showSignupPassword ? <EyeOff className="h-5 w-5" strokeWidth={1.75} /> : <Eye className="h-5 w-5" strokeWidth={1.75} />}
-                            </button>
-                          </div>
-                        </label>
-
-                        <label className="block space-y-2">
-                          <span className="portal-subheading text-sm font-medium">
-                            {t('selectRolePasswordConfirmLabel')}
-                          </span>
-                          <div className="relative">
-                            <input
-                              type={showSignupPasswordConfirm ? 'text' : 'password'}
-                              autoComplete="new-password"
-                              value={signupPasswordConfirm}
-                              onChange={(e) => setSignupPasswordConfirm(e.target.value)}
-                              required
-                              className="portal-input w-full rounded-xl py-3 pl-4 pr-11 text-sm focus:ring-4"
-                            />
-                            <button
-                              type="button"
-                              onClick={() => setShowSignupPasswordConfirm((v) => !v)}
-                              className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-slate-400"
-                              aria-label={
-                                showSignupPasswordConfirm ? t('loginHidePassword') : t('loginShowPassword')
-                              }
-                            >
-                              {showSignupPasswordConfirm ? (
-                                <EyeOff className="h-5 w-5" strokeWidth={1.75} />
-                              ) : (
-                                <Eye className="h-5 w-5" strokeWidth={1.75} />
-                              )}
-                            </button>
-                          </div>
                         </label>
 
                         <button

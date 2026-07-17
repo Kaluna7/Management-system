@@ -117,7 +117,6 @@ type AuthContextValue = {
   sendEmailSignupCode: (
     email: string,
     username: string,
-    password: string,
     options?: { force?: boolean },
   ) => Promise<
     { ok: true; sentTo?: string; codeUnchanged?: boolean } | { ok: false; message: string; retryAfter?: number }
@@ -606,7 +605,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     async (
       email: string,
       username: string,
-      password: string,
       options?: { force?: boolean },
     ): Promise<
       | { ok: true; sentTo?: string; codeUnchanged?: boolean }
@@ -620,9 +618,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!/^[a-z0-9_]{3,32}$/.test(usernameKey)) {
         return { ok: false, message: t('selectRoleUsernameInvalid') }
       }
-      if (password.length < 8) {
-        return { ok: false, message: t('selectRolePasswordHint') }
-      }
       try {
         const res = await fetch(`${API_BASE_URL}/api/auth/email-signup/send-code`, {
           method: 'POST',
@@ -630,7 +625,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           body: JSON.stringify({
             email: normalized,
             username: usernameKey,
-            password,
             force: options?.force === true,
           }),
         })
@@ -689,7 +683,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         const res = await fetch(`${API_BASE_URL}/api/auth/email-signup/verify-code`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ email: normalized, verificationCode: code }),
+          body: JSON.stringify({
+            email: normalized,
+            verificationCode: code,
+          }),
         })
         const data = (await res.json().catch(() => ({}))) as {
           message?: string

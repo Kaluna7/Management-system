@@ -448,7 +448,7 @@ router.post("/login", async (req, res) => {
   }
 });
 
-/** Sign up with Outlook / any email — save credentials, then send 6-digit verification code. */
+/** Sign up with Outlook / any email — save username, then send 6-digit verification code. */
 router.post("/email-signup/send-code", async (req, res) => {
   if (!requireJwtSecret(res)) return;
   try {
@@ -456,7 +456,6 @@ router.post("/email-signup/send-code", async (req, res) => {
     const force = req.body?.force === true || req.body?.resend === true;
     const usernameNew =
       typeof req.body?.username === "string" ? req.body.username.trim().toLowerCase() : "";
-    const passwordNew = req.body?.password;
 
     if (!isValidEmail(email)) {
       return res.status(400).json({ message: "Enter a valid email address." });
@@ -466,9 +465,6 @@ router.post("/email-signup/send-code", async (req, res) => {
         message:
           "Username must be 3–32 characters, lowercase letters, numbers, or underscore only.",
       });
-    }
-    if (typeof passwordNew !== "string" || passwordNew.length < 8) {
-      return res.status(400).json({ message: "Password must be at least 8 characters." });
     }
 
     let user = await findUserByEmail(email);
@@ -492,7 +488,6 @@ router.post("/email-signup/send-code", async (req, res) => {
       return res.status(409).json({ message: "Username is already taken." });
     }
 
-    const passwordHash = await bcrypt.hash(passwordNew, BCRYPT_ROUNDS);
     const displayName = email.split("@")[0];
 
     if (!user) {
@@ -501,7 +496,6 @@ router.post("/email-signup/send-code", async (req, res) => {
           username: usernameNew,
           email,
           displayName,
-          passwordHash,
           role: null,
         },
       });
@@ -510,7 +504,6 @@ router.post("/email-signup/send-code", async (req, res) => {
         where: { id: user.id },
         data: {
           username: usernameNew,
-          passwordHash,
           displayName: user.displayName || displayName,
         },
       });

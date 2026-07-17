@@ -71,8 +71,10 @@ function requestRoleCodeDeduped(
 export function SelectRole() {
   const { t } = useLanguage()
   const [searchParams] = useSearchParams()
-  const skipVerifyStep = searchParams.get('step') === '2' || isOnboardingVerifySkipped()
-  const roleOnlyStep = searchParams.get('step') === '3' && isOnboardingVerifySkipped()
+  const skipVerifyStep =
+    searchParams.get('step') === '2' ||
+    searchParams.get('step') === '3' ||
+    isOnboardingVerifySkipped()
   const {
     pendingGoogle,
     completeRoleSelection,
@@ -92,7 +94,7 @@ export function SelectRole() {
   const [sendStatus, setSendStatus] = useState<'idle' | 'sending' | 'sent' | 'error'>('idle')
   const [sentToHint, setSentToHint] = useState<string | null>(null)
   const [cooldownSec, setCooldownSec] = useState(0)
-  const [step, setStep] = useState<1 | 2 | 3>(roleOnlyStep ? 3 : skipVerifyStep ? 2 : 1)
+  const [step, setStep] = useState<1 | 2 | 3>(skipVerifyStep ? 2 : 1)
   const [verifyingStep1, setVerifyingStep1] = useState(false)
   const [showChangeEmail, setShowChangeEmail] = useState(false)
   const [alternateEmail, setAlternateEmail] = useState('')
@@ -249,7 +251,7 @@ export function SelectRole() {
   }, [step])
 
   useEffect(() => {
-    if (skipVerifyStep || roleOnlyStep) return
+    if (skipVerifyStep) return
     let cancelled = false
     const tId = window.setTimeout(() => {
       if (cancelled) return
@@ -284,7 +286,7 @@ export function SelectRole() {
       cancelled = true
       window.clearTimeout(tId)
     }
-  }, [syncCooldownFromServer, skipVerifyStep, roleOnlyStep, t])
+  }, [syncCooldownFromServer, skipVerifyStep, t])
 
   useEffect(() => {
     if (!successPhase) return
@@ -414,6 +416,8 @@ export function SelectRole() {
     }
   }
 
+  const usernameFromSignup = Boolean(loadSignupUsername())
+
   async function goNext() {
     setError(null)
     if (step === 1) {
@@ -455,6 +459,7 @@ export function SelectRole() {
 
   function goBack() {
     if (step === 1) return
+    if (step === 2 && skipVerifyStep) return
     setError(null)
     setStep((s) => (s === 3 ? 2 : 1))
   }
@@ -473,25 +478,17 @@ export function SelectRole() {
       setError(t('selectRoleUsernameInvalid'))
       return
     }
-    const credentialsOnServer = roleOnlyStep || Boolean(loadSignupUsername())
-    if (!credentialsOnServer) {
-      if (password.length < 8) {
-        setError(t('selectRolePasswordHint'))
-        return
-      }
-      if (password !== passwordConfirm) {
-        setError(t('selectRolePasswordMismatch'))
-        return
-      }
+    if (password.length < 8) {
+      setError(t('selectRolePasswordHint'))
+      return
+    }
+    if (password !== passwordConfirm) {
+      setError(t('selectRolePasswordMismatch'))
+      return
     }
 
     setBusy(true)
-    const result = await completeRoleSelection(
-      role,
-      trimmed,
-      u,
-      credentialsOnServer ? '' : password,
-    )
+    const result = await completeRoleSelection(role, trimmed, u, password)
     setBusy(false)
     if (result.ok === false) {
       setError(result.message || t('roleSaveError'))
@@ -768,7 +765,7 @@ export function SelectRole() {
                           }
                           placeholder={t('selectRoleUsernamePlaceholder')}
                           maxLength={32}
-                          disabled={successPhase}
+                          disabled={successPhase || usernameFromSignup}
                           className="w-full rounded-lg border border-slate-300 px-3 py-1.5 font-mono text-sm outline-none ring-primary/20 focus:border-primary focus:ring-2 disabled:bg-slate-50"
                         />
                       </label>
@@ -791,7 +788,11 @@ export function SelectRole() {
                             className="absolute inset-y-0 right-2 inline-flex items-center text-slate-500 hover:text-slate-700 disabled:opacity-50"
                             aria-label={showPassword ? 'Hide password' : 'Show password'}
                           >
-                            {showPassword ? <EyeOff className="h-4 w-4" strokeWidth={1.75} /> : <Eye className="h-4 w-4" strokeWidth={1.75} />}
+                            {showPassword ? (
+                              <EyeOff className="h-4 w-4" strokeWidth={1.75} />
+                            ) : (
+                              <Eye className="h-4 w-4" strokeWidth={1.75} />
+                            )}
                           </button>
                         </div>
                         <span className="block text-xs text-slate-500">{t('selectRolePasswordHint')}</span>
@@ -815,7 +816,9 @@ export function SelectRole() {
                             onClick={() => setShowPasswordConfirm((v) => !v)}
                             disabled={successPhase}
                             className="absolute inset-y-0 right-2 inline-flex items-center text-slate-500 hover:text-slate-700 disabled:opacity-50"
-                            aria-label={showPasswordConfirm ? 'Hide confirm password' : 'Show confirm password'}
+                            aria-label={
+                              showPasswordConfirm ? 'Hide confirm password' : 'Show confirm password'
+                            }
                           >
                             {showPasswordConfirm ? (
                               <EyeOff className="h-4 w-4" strokeWidth={1.75} />
@@ -827,13 +830,15 @@ export function SelectRole() {
                       </label>
 
                       <div className="mt-6 flex flex-wrap gap-3">
-                        <button
-                          type="button"
-                          onClick={goBack}
-                          className="min-w-26 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
-                        >
-                          {t('selectRoleBack')}
-                        </button>
+                        {!skipVerifyStep ? (
+                          <button
+                            type="button"
+                            onClick={goBack}
+                            className="min-w-26 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50"
+                          >
+                            {t('selectRoleBack')}
+                          </button>
+                        ) : null}
                         <button
                           type="button"
                           onClick={() => void goNext()}
@@ -878,16 +883,14 @@ export function SelectRole() {
                         <p className="mt-3 text-center text-xs text-slate-500">{t('selectRoleSaving')}</p>
                       ) : null}
 
-                      {roleOnlyStep ? null : (
-                        <button
-                          type="button"
-                          onClick={goBack}
-                          disabled={busy}
-                          className="mt-6 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
-                        >
-                          {t('selectRoleBack')}
-                        </button>
-                      )}
+                      <button
+                        type="button"
+                        onClick={goBack}
+                        disabled={busy}
+                        className="mt-6 rounded-xl border border-slate-300 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-50"
+                      >
+                        {t('selectRoleBack')}
+                      </button>
                     </section>
                   </div>
                 </div>

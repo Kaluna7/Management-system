@@ -32,7 +32,7 @@ export const STRINGS = {
       'Open the file `.env` next to `package.json`, set VITE_GOOGLE_CLIENT_ID=your Google Web Client ID, then restart the dev server (Vite only reads env at startup).',
     signupWithEmail: 'Sign up with another email',
     signupWithEmailHint:
-      'Enter your email, username, and password. We will send a 6-digit verification code to your inbox.',
+      'Enter your email and username. After verification you will set a password.',
     signupEmailLabel: 'Email address',
     signupEmailPlaceholder: 'you@company.com',
     signupEmailSendCode: 'Send verification code',
@@ -510,7 +510,7 @@ export const STRINGS = {
       'Buka file `.env` di folder yang sama dengan `package.json`, isi VITE_GOOGLE_CLIENT_ID=Client ID Web dari Google, lalu restart dev server (Vite hanya membaca env saat server dimulai).',
     signupWithEmail: 'Daftar dengan email lain',
     signupWithEmailHint:
-      'Isi email, username, dan sandi. Kami akan mengirim kode verifikasi 6 digit ke inbox Anda.',
+      'Masukkan email dan username. Setelah verifikasi Anda akan mengatur sandi.',
     signupEmailLabel: 'Alamat email',
     signupEmailPlaceholder: 'anda@perusahaan.com',
     signupEmailSendCode: 'Kirim kode verifikasi',
