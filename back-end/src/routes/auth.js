@@ -485,7 +485,10 @@ router.post("/email-signup/send-code", async (req, res) => {
         : { username: usernameNew },
     });
     if (usernameTaken) {
-      return res.status(409).json({ message: "Username is already taken." });
+      return res.status(409).json({
+        message:
+          "An account with this email already exists. Please sign in with your username and password.",
+      });
     }
 
     const displayName = email.split("@")[0];

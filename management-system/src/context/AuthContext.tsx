@@ -642,8 +642,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
               : parseRetryAfterSeconds(data.message)
           let message = data.message || t('roleVerificationSendFailed')
           if (res.status === 409) {
-            if (/username/i.test(message)) message = t('selectRoleUsernameTaken')
-            else if (/google/i.test(message)) message = t('signupEmailUseGoogle')
+            if (/google/i.test(message)) message = t('signupEmailUseGoogle')
             else message = t('signupEmailExists')
           }
           return {
