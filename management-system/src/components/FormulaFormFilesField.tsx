@@ -1,5 +1,6 @@
 import { useCallback, useId, useState } from 'react'
 import { Download, Eye, Trash2, X } from 'lucide-react'
+import { useAppDialog } from '../context/AppDialogContext'
 import { FORMULA_FORM_MAX } from '../utils/formulaFormFiles'
 import { StagedFilePreviewModal } from './StagedFilePreviewModal'
 
@@ -58,6 +59,7 @@ export function FormulaFormFilesField({
   onPreviewExisting,
   existingFileAction = 'preview',
 }: Props) {
+  const { showAlert, showConfirm } = useAppDialog()
   const inputId = useId()
   const [stagingQueue, setStagingQueue] = useState<File[]>([])
   const [stagingIndex, setStagingIndex] = useState(0)
@@ -101,7 +103,7 @@ export function FormulaFormFilesField({
 
       const valid = picked.filter(isPdfFile)
       if (valid.length < picked.length) {
-        window.alert(labels.invalidFile)
+        void showAlert(labels.invalidFile)
       }
       if (valid.length === 0) return
 
@@ -110,7 +112,27 @@ export function FormulaFormFilesField({
       setStagingQueue(valid.slice(0, room))
       setStagingIndex(0)
     },
-    [labels.invalidFile, maxFiles, totalCount],
+    [labels.invalidFile, maxFiles, showAlert, totalCount],
+  )
+
+  const requestDeleteExisting = useCallback(
+    async (originalIndex: number) => {
+      if (labels.deleteExistingConfirm) {
+        const ok = await showConfirm(labels.deleteExistingConfirm, {
+          confirmLabel: labels.deleteExisting,
+          cancelLabel: labels.close,
+        })
+        if (!ok) return
+      }
+      onRemoveExisting(originalIndex)
+    },
+    [
+      labels.close,
+      labels.deleteExisting,
+      labels.deleteExistingConfirm,
+      onRemoveExisting,
+      showConfirm,
+    ],
   )
 
   const countLabel = labels.count.replace('{count}', String(totalCount)).replace('{max}', String(maxFiles))
@@ -167,10 +189,7 @@ export function FormulaFormFilesField({
           ) : null}
           <button
             type="button"
-            onClick={() => {
-              if (labels.deleteExistingConfirm && !window.confirm(labels.deleteExistingConfirm)) return
-              onRemoveExisting(item.originalIndex)
-            }}
+            onClick={() => void requestDeleteExisting(item.originalIndex)}
             className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-white px-2.5 py-1 text-xs font-semibold text-red-700 hover:bg-red-50"
           >
             <Trash2 className="h-3 w-3" aria-hidden strokeWidth={1.75} />

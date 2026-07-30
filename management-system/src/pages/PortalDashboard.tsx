@@ -22,6 +22,7 @@ import { StampedPaperUploadButton } from '../components/StampedPaperUploadButton
 import { PeriodRangePicker, todayIsoDateLocal, type PeriodRangeValue } from '../components/PeriodRangePicker'
 import { RevenueLineChart } from '../components/RevenueLineChart'
 import { useAuth } from '../context/AuthContext'
+import { useAppDialog } from '../context/AppDialogContext'
 import { useLanguage } from '../context/LanguageContext'
 import { useWorkflow } from '../context/WorkflowContext'
 import type { StringKey } from '../i18n/strings'
@@ -374,6 +375,7 @@ function FinanceTaskRow({
 
 export function PortalDashboard() {
   const { t, dateLocale, locale } = useLanguage()
+  const { showAlert } = useAppDialog()
   const { user, authToken } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
@@ -484,10 +486,10 @@ export function PortalDashboard() {
           downloadPublishedRecordTextSummary(record, locale)
         }
       } catch {
-        window.alert(t('archiveDownloadFailed'))
+        void showAlert(t('archiveDownloadFailed'))
       }
     },
-    [apiConnected, authToken, locale, t],
+    [apiConnected, authToken, locale, showAlert, t],
   )
 
   const handleTaskStampUpload = useCallback(
@@ -513,12 +515,12 @@ export function PortalDashboard() {
       try {
         await requestBuyerEditPermission(recordId, userName)
       } catch (err) {
-        window.alert(err instanceof Error ? err.message : 'Request failed')
+        void showAlert(err instanceof Error ? err.message : 'Request failed')
       } finally {
         setRequestingEditId(null)
       }
     },
-    [requestBuyerEditPermission, userName, t],
+    [requestBuyerEditPermission, showAlert, userName, t],
   )
 
   const handleResolveBuyerEditRequest = useCallback(
@@ -527,12 +529,12 @@ export function PortalDashboard() {
       try {
         await resolveBuyerEditRequest(recordId, decision, userName)
       } catch (err) {
-        window.alert(err instanceof Error ? err.message : 'Failed')
+        void showAlert(err instanceof Error ? err.message : 'Failed')
       } finally {
         setResolvingEditRequestId(null)
       }
     },
-    [resolveBuyerEditRequest, userName],
+    [resolveBuyerEditRequest, showAlert, userName],
   )
   const financeInvoiceFormRecords = useMemo(
     () =>
@@ -1006,22 +1008,22 @@ export function PortalDashboard() {
     const formData = new FormData(form)
     const vendorCode = String(formData.get('vendorCode') ?? selectedVendorCode).trim()
     if (!vendorCode) {
-      window.alert(t('vendorsEmpty'))
+      void showAlert(t('vendorsEmpty'))
       return
     }
     const vendorName =
       getVendorNameByCode(vendorCode) || editingBuyerRecord?.vendorName || ''
     const amountParsed = parseIdrAmountInput(amountEarnedInput)
     if (!Number.isFinite(amountParsed) || amountParsed <= 0) {
-      window.alert(t('amountEarnedInvalid'))
+      void showAlert(t('amountEarnedInvalid'))
       return
     }
     if (!periodRange.start || !periodRange.end) {
-      window.alert(t('periodRangeInvalid'))
+      void showAlert(t('periodRangeInvalid'))
       return
     }
     if (periodRange.end < periodRange.start) {
-      window.alert(t('periodRangeOrderInvalid'))
+      void showAlert(t('periodRangeOrderInvalid'))
       return
     }
     const today = todayIsoDateLocal()
@@ -1037,7 +1039,7 @@ export function PortalDashboard() {
       periodChanged &&
       (periodRange.start < today || periodRange.end < today)
     ) {
-      window.alert(t('periodRangePastInvalid'))
+      void showAlert(t('periodRangePastInvalid'))
       return
     }
     const keepSlots = existingAgreementNames
@@ -1070,15 +1072,15 @@ export function PortalDashboard() {
       if (editingBuyerRecordId) {
         if (agreementFilesChanged) {
           if (totalAgreementDocs === 0) {
-            window.alert(t('agreementFileRequired'))
+            void showAlert(t('agreementFileRequired'))
             return
           }
           if (totalAgreementDocs > AGREEMENT_MAX) {
-            window.alert(t('agreementFileMax'))
+            void showAlert(t('agreementFileMax'))
             return
           }
         } else if (totalAgreementDocs === 0) {
-          window.alert(t('agreementFileRequired'))
+          void showAlert(t('agreementFileRequired'))
           return
         }
         await updateBuyerData(
@@ -1092,11 +1094,11 @@ export function PortalDashboard() {
       }
 
       if (agreementFiles.length === 0) {
-        window.alert(t('agreementFileRequired'))
+        void showAlert(t('agreementFileRequired'))
         return
       }
       if (agreementFiles.length > AGREEMENT_MAX) {
-        window.alert(t('agreementFileMax'))
+        void showAlert(t('agreementFileMax'))
         return
       }
       await createBuyerData(payload, userName, 'buyers', { newFiles: agreementFiles })
@@ -1104,7 +1106,7 @@ export function PortalDashboard() {
       closeBuyerFormModal()
       navigate('/dashboard')
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : t('agreementFileMax'))
+      void showAlert(err instanceof Error ? err.message : t('agreementFileMax'))
     } finally {
       setBuyerFormBusy(false)
     }
@@ -1125,16 +1127,16 @@ export function PortalDashboard() {
 
     if (!isEditingInvoice || filesChanged) {
       if (totalDocs === 0) {
-        window.alert(t('invFormulaPdfRequired'))
+        void showAlert(t('invFormulaPdfRequired'))
         return
       }
       if (totalDocs > FORMULA_FORM_MAX) {
-        window.alert(t('invFormulaPdfMax'))
+        void showAlert(t('invFormulaPdfMax'))
         return
       }
       for (const file of formulaFormFiles) {
         if (!file.name.toLowerCase().endsWith('.pdf')) {
-          window.alert(t('invFormulaPdfRequired'))
+          void showAlert(t('invFormulaPdfRequired'))
           return
         }
       }
@@ -1145,13 +1147,13 @@ export function PortalDashboard() {
     const accountNo = String(formData.get('accountNo') ?? '').trim()
     const beneficiaryName = String(formData.get('beneficiaryName') ?? '').trim()
     if (!bankName || !bankBranch || !accountNo || !beneficiaryName) {
-      window.alert(t('invBankNoneSelected'))
+      void showAlert(t('invBankNoneSelected'))
       return
     }
     const signerName = String(formData.get('signer') ?? '').trim()
     const signerTitle = String(formData.get('signerTitle') ?? '').trim()
     if (!signerName || !signerTitle) {
-      window.alert(t('invSignerNoneSelected'))
+      void showAlert(t('invSignerNoneSelected'))
       return
     }
     const savedFormulaNames = formulaFormFileNamesForSave(

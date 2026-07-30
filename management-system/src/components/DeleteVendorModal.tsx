@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { Search, Trash2 } from 'lucide-react'
 import type { VendorOption } from '../data/vendors'
+import { useAppDialog } from '../context/AppDialogContext'
 import { FormLoadingOverlay } from './FormLoadingOverlay'
 import { InputIconWrap } from './InputIconWrap'
 import { ModalCloseButton } from './ModalCloseButton'
@@ -47,6 +48,7 @@ export function DeleteVendorModal({
   onClose,
   onDelete,
 }: DeleteVendorModalProps) {
+  const { showConfirm } = useAppDialog()
   const [query, setQuery] = useState('')
   const [selectedCode, setSelectedCode] = useState('')
 
@@ -81,7 +83,11 @@ export function DeleteVendorModal({
 
   async function handleDelete() {
     if (!selected) return
-    if (!window.confirm(confirmMessage(selected.code, selected.name))) return
+    const ok = await showConfirm(confirmMessage(selected.code, selected.name), {
+      confirmLabel: deleteLabel,
+      cancelLabel: closeLabel,
+    })
+    if (!ok) return
     await onDelete(selected.code)
   }
 

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react'
 import { PeriodRangePicker, todayIsoDateLocal } from '../components/PeriodRangePicker'
 import { useAuth } from '../context/AuthContext'
+import { useAppDialog } from '../context/AppDialogContext'
 import { useWorkflow } from '../context/WorkflowContext'
 import type { BuyerInput, BuyerRecord, InvoiceData } from '../types/workflow'
 import { AgreementFileField } from '../components/AgreementFileField'
@@ -108,6 +109,7 @@ function summaryFrom(records: BuyerRecord[]) {
 
 export function Dashboard() {
   const { user, logout } = useAuth()
+  const { showAlert, showConfirm } = useAppDialog()
   const { records, createBuyerData, setInvoiceReceived, createInvoice, uploadStampedPaper, publishPaper } =
     useWorkflow()
   const { vendors, loading: vendorsLoading, getVendorByCode, getVendorNameByCode, createVendor } = useVendors()
@@ -236,29 +238,29 @@ export function Dashboard() {
   async function submitBuyerForm(event: FormEvent) {
     event.preventDefault()
     if (!agreementFile) {
-      window.alert('Pilih berkas perjanjian.')
+      void showAlert('Pilih berkas perjanjian.')
       return
     }
     if (!buyerForm.vendorCode || vendors.length === 0) {
-      window.alert('Belum ada vendor di database. Isi tabel Vendor terlebih dahulu.')
+      void showAlert('Belum ada vendor di database. Isi tabel Vendor terlebih dahulu.')
       return
     }
     const amountParsed = parseIdrAmountInput(amountEarnedInput)
     if (!Number.isFinite(amountParsed) || amountParsed <= 0) {
-      window.alert('Masukkan jumlah valid lebih dari nol (mis. 10.000).')
+      void showAlert('Masukkan jumlah valid lebih dari nol (mis. 10.000).')
       return
     }
     if (!buyerForm.periodStart || !buyerForm.periodEnd) {
-      window.alert('Pilih tanggal awal dan akhir periode.')
+      void showAlert('Pilih tanggal awal dan akhir periode.')
       return
     }
     if (buyerForm.periodEnd < buyerForm.periodStart) {
-      window.alert('Tanggal akhir tidak boleh sebelum tanggal awal.')
+      void showAlert('Tanggal akhir tidak boleh sebelum tanggal awal.')
       return
     }
     const today = todayIsoDateLocal()
     if (buyerForm.periodStart < today || buyerForm.periodEnd < today) {
-      window.alert('Tanggal yang sudah lewat tidak bisa dipilih. Pilih hari ini atau tanggal mendatang.')
+      void showAlert('Tanggal yang sudah lewat tidak bisa dipilih. Pilih hari ini atau tanggal mendatang.')
       return
     }
     try {
@@ -269,7 +271,7 @@ export function Dashboard() {
         { newFiles: [agreementFile] },
       )
     } catch (e) {
-      window.alert(e instanceof Error ? e.message : 'Gagal menyimpan.')
+      void showAlert(e instanceof Error ? e.message : 'Gagal menyimpan.')
       return
     }
     setAgreementFile(null)
@@ -294,15 +296,15 @@ export function Dashboard() {
     if (!selectedRecord) return
     void (async () => {
       if (!formulaFormFile?.name.toLowerCase().endsWith('.pdf')) {
-        window.alert('Formula form must be a PDF.')
+        void showAlert('Formula form must be a PDF.')
         return
       }
       if (!invoiceForm.party.trim()) {
-        window.alert('Enter party name for the invoice (finance entry).')
+        void showAlert('Enter party name for the invoice (finance entry).')
         return
       }
       if (!invoiceForm.signer.trim() || !invoiceForm.signerTitle?.trim()) {
-        window.alert('Select signature position and name.')
+        void showAlert('Select signature position and name.')
         return
       }
       try {
@@ -322,7 +324,7 @@ export function Dashboard() {
         )
         setTab('task')
       } catch (e) {
-        window.alert(e instanceof Error ? e.message : 'Gagal menyimpan invoice.')
+        void showAlert(e instanceof Error ? e.message : 'Gagal menyimpan invoice.')
       }
     })()
   }
@@ -377,7 +379,16 @@ export function Dashboard() {
             <button
               type="button"
               className="rounded-lg border border-slate-300 bg-slate-50 px-4 py-2 text-sm font-medium text-slate-700 transition hover:border-violet-300 hover:text-violet-700"
-              onClick={logout}
+              onClick={() => {
+                void (async () => {
+                  const ok = await showConfirm('Are you sure you want to sign out?', {
+                    confirmLabel: 'Sign out',
+                    cancelLabel: 'Cancel',
+                    destructive: false,
+                  })
+                  if (ok) logout()
+                })()
+              }}
             >
               Keluar
             </button>

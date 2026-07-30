@@ -4,6 +4,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react'
 import { ModalCloseButton } from './ModalCloseButton'
 import { FormLoadingOverlay } from './FormLoadingOverlay'
 import { useAuth } from '../context/AuthContext'
+import { useAppDialog } from '../context/AppDialogContext'
 import { useLanguage } from '../context/LanguageContext'
 import { PROFILE_AVATAR_PRESETS } from '../data/profileAvatarPresets'
 import { CartoonPresetAvatar } from './CartoonPresetAvatar'
@@ -41,6 +42,7 @@ function formatVerificationCooldownDuration(totalSec: number): string {
 
 export function ProfileMenu({ userName, userInitial, compact = false }: Props) {
   const { t } = useLanguage()
+  const { showAlert, showConfirm } = useAppDialog()
   const {
     user,
     authToken,
@@ -200,7 +202,7 @@ export function ProfileMenu({ userName, userInitial, compact = false }: Props) {
       if (result.ok) {
         setSelectedPreset(presetId.padStart(2, '0'))
       } else {
-        window.alert(result.message)
+        void showAlert(result.message)
       }
     } finally {
       setAvatarBusy(false)
@@ -217,7 +219,7 @@ export function ProfileMenu({ userName, userInitial, compact = false }: Props) {
       if (result.ok) {
         setSelectedPreset(null)
       } else {
-        window.alert(result.message)
+        void showAlert(result.message)
       }
     } finally {
       setAvatarBusy(false)
@@ -229,7 +231,7 @@ export function ProfileMenu({ userName, userInitial, compact = false }: Props) {
     setAvatarBusy(true)
     try {
       const result = await removeProfilePhoto()
-      if (!result.ok) window.alert(result.message)
+      if (!result.ok) void showAlert(result.message)
     } finally {
       setAvatarBusy(false)
     }
@@ -245,9 +247,9 @@ export function ProfileMenu({ userName, userInitial, compact = false }: Props) {
       const result = await updateProfile({ displayName: name })
       if (result.ok) {
         closeEditModal()
-        window.alert(t('profileSaveSuccess'))
+        void showAlert(t('profileSaveSuccess'))
       } else {
-        window.alert(result.message)
+        void showAlert(result.message)
       }
     } finally {
       setBusy(false)
@@ -327,14 +329,14 @@ export function ProfileMenu({ userName, userInitial, compact = false }: Props) {
   async function submitForgotPassword(event: FormEvent) {
     event.preventDefault()
     if (forgotNewPassword !== forgotConfirmPassword) {
-      window.alert(t('profilePasswordMismatch'))
+      void showAlert(t('profilePasswordMismatch'))
       return
     }
     setForgotPasswordBusy(true)
     try {
       const result = await completePasswordReset(forgotNewPassword)
       if (!result.ok) {
-        window.alert(result.message)
+        void showAlert(result.message)
         return
       }
       resetForgotFlowState()
@@ -348,10 +350,16 @@ export function ProfileMenu({ userName, userInitial, compact = false }: Props) {
 
   async function submitDeleteAccount() {
     if (!deletePassword.trim()) {
-      window.alert(t('accountDeleteConfirmPrompt'))
+      void showAlert(t('accountDeleteConfirmPrompt'))
       return
     }
-    const confirmed = window.confirm(`${t('accountDeleteWarning')}\n\n${t('accountDeleteConfirmPrompt')}`)
+    const confirmed = await showConfirm(
+      `${t('accountDeleteWarning')}\n\n${t('accountDeleteConfirmPrompt')}`,
+      {
+        confirmLabel: t('accountDeleteConfirmButton'),
+        cancelLabel: t('cancel'),
+      },
+    )
     if (!confirmed) return
 
     setDeleteBusy(true)
@@ -359,9 +367,9 @@ export function ProfileMenu({ userName, userInitial, compact = false }: Props) {
       const result = await deleteAccount(deletePassword)
       if (result.ok) {
         closeEditModal()
-        window.alert(t('accountDeleteSuccess'))
+        void showAlert(t('accountDeleteSuccess'))
       } else {
-        window.alert(result.message)
+        void showAlert(result.message)
       }
     } finally {
       setDeleteBusy(false)
@@ -427,7 +435,14 @@ export function ProfileMenu({ userName, userInitial, compact = false }: Props) {
                   className="block w-full px-4 py-2.5 text-left text-sm portal-body transition hover:bg-primary-light hover:text-primary"
                   onClick={() => {
                     setOpen(false)
-                    logout()
+                    void (async () => {
+                      const ok = await showConfirm(t('logoutConfirmMessage'), {
+                        confirmLabel: t('logout'),
+                        cancelLabel: t('cancel'),
+                        destructive: false,
+                      })
+                      if (ok) logout()
+                    })()
                   }}
                 >
                   {t('logout')}

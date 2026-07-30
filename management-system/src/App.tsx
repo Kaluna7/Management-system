@@ -1,4 +1,5 @@
 import { AuthProvider, useAuth } from './context/AuthContext'
+import { AppDialogProvider } from './context/AppDialogContext'
 import { LanguageProvider } from './context/LanguageContext'
 import { ThemeProvider } from './context/ThemeContext'
 import { RealtimeProvider } from './context/RealtimeContext'
@@ -55,13 +56,15 @@ export default function App() {
     <BrowserRouter>
       <ThemeProvider>
         <LanguageProvider>
-          <AuthProvider>
-            <RealtimeProvider>
-              <WorkflowProvider>
-                <AppRoutes />
-              </WorkflowProvider>
-            </RealtimeProvider>
-          </AuthProvider>
+          <AppDialogProvider>
+            <AuthProvider>
+              <RealtimeProvider>
+                <WorkflowProvider>
+                  <AppRoutes />
+                </WorkflowProvider>
+              </RealtimeProvider>
+            </AuthProvider>
+          </AppDialogProvider>
         </LanguageProvider>
       </ThemeProvider>
     </BrowserRouter>

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useId, useState } from 'react'
+import { useAppDialog } from '../context/AppDialogContext'
 import { ModalCloseButton } from './ModalCloseButton'
 
 const PREVIEWABLE_IMAGE = /^image\//i
@@ -54,6 +55,7 @@ export function AgreementFileField({
   pdfOnly = false,
   portalUI = false,
 }: AgreementFileFieldProps) {
+  const { showAlert, showConfirm } = useAppDialog()
   const inputId = useId()
   const [previewOpen, setPreviewOpen] = useState(false)
   const [stagingFile, setStagingFile] = useState<File | null>(null)
@@ -119,12 +121,12 @@ export function AgreementFileField({
       event.target.value = ''
       if (!picked) return
       if (pdfOnly && !isPdfFile(picked)) {
-        if (labels.invalidFile) window.alert(labels.invalidFile)
+        if (labels.invalidFile) void showAlert(labels.invalidFile)
         return
       }
       openStagingPreview(picked)
     },
-    [openStagingPreview, pdfOnly, labels.invalidFile],
+    [openStagingPreview, pdfOnly, labels.invalidFile, showAlert],
   )
 
   const labelClass = portalUI ? 'portal-subheading block font-medium' : 'block font-medium text-slate-700'
@@ -142,12 +144,26 @@ export function AgreementFileField({
 
   const fileRequired = Boolean(required && !file && !hasSavedFile)
 
-  const handleDeleteExisting = useCallback(() => {
+  const handleDeleteExisting = useCallback(async () => {
     if (!onDeleteExisting) return
-    if (labels.deleteExistingConfirm && !window.confirm(labels.deleteExistingConfirm)) return
+    if (labels.deleteExistingConfirm) {
+      const ok = await showConfirm(labels.deleteExistingConfirm, {
+        confirmLabel: labels.deleteExisting ?? labels.remove,
+        cancelLabel: labels.closePreview,
+      })
+      if (!ok) return
+    }
     closeExistingPreview()
     onDeleteExisting()
-  }, [onDeleteExisting, labels.deleteExistingConfirm, closeExistingPreview])
+  }, [
+    onDeleteExisting,
+    labels.deleteExistingConfirm,
+    labels.deleteExisting,
+    labels.remove,
+    labels.closePreview,
+    closeExistingPreview,
+    showConfirm,
+  ])
 
   return (
     <div className={`space-y-2 text-sm ${portalUI ? 'md:col-span-2' : ''}`}>
@@ -189,7 +205,7 @@ export function AgreementFileField({
           {onDeleteExisting ? (
             <button
               type="button"
-              onClick={handleDeleteExisting}
+              onClick={() => void handleDeleteExisting()}
               className="rounded-md border border-red-200 bg-white px-2.5 py-1 text-xs font-semibold text-red-700 hover:bg-red-50 dark:border-red-500/40 dark:bg-slate-900 dark:text-red-300 dark:hover:bg-red-950/40"
             >
               {labels.deleteExisting ?? labels.remove}
