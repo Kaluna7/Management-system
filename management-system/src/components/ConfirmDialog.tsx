@@ -37,7 +37,7 @@ export function ConfirmDialog({
 
   return createPortal(
     <div
-      className="portal-overlay fixed inset-0 z-[210] flex items-center justify-center p-4 backdrop-blur-sm"
+      className="portal-overlay fixed inset-0 z-[400] flex items-center justify-center p-4 backdrop-blur-sm"
       role="alertdialog"
       aria-modal="true"
       aria-labelledby={title ? 'confirm-dialog-title' : undefined}

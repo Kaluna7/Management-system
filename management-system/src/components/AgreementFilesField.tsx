@@ -2,6 +2,7 @@ import { useCallback, useId, useState } from 'react'
 import { Download, Eye, Trash2, X } from 'lucide-react'
 import { useAppDialog } from '../context/AppDialogContext'
 import { AGREEMENT_MAX } from '../utils/agreementFiles'
+import { ConfirmDialog } from './ConfirmDialog'
 import { StagedFilePreviewModal } from './StagedFilePreviewModal'
 
 export type AgreementExistingFile = {
@@ -66,11 +67,12 @@ export function AgreementFilesField({
   onPreviewExisting,
   existingFileAction = 'preview',
 }: Props) {
-  const { showAlert, showConfirm } = useAppDialog()
+  const { showAlert } = useAppDialog()
   const inputId = useId()
   const [stagingQueue, setStagingQueue] = useState<File[]>([])
   const [stagingIndex, setStagingIndex] = useState(0)
   const [reviewFile, setReviewFile] = useState<File | null>(null)
+  const [deleteIndex, setDeleteIndex] = useState<number | null>(null)
 
   const totalCount = existingFiles.length + files.length
   const canAddMore = totalCount < maxFiles
@@ -125,25 +127,12 @@ export function AgreementFilesField({
     [labels.invalidFile, labels.maxHint, maxFiles, showAlert, totalCount],
   )
 
-  const requestDeleteExisting = useCallback(
-    async (originalIndex: number) => {
-      if (labels.deleteExistingConfirm) {
-        const ok = await showConfirm(labels.deleteExistingConfirm, {
-          confirmLabel: labels.deleteExisting,
-          cancelLabel: labels.close,
-        })
-        if (!ok) return
-      }
-      onRemoveExisting(originalIndex)
-    },
-    [
-      labels.close,
-      labels.deleteExisting,
-      labels.deleteExistingConfirm,
-      onRemoveExisting,
-      showConfirm,
-    ],
-  )
+  const confirmDeleteExisting = useCallback(() => {
+    if (deleteIndex == null) return
+    const index = deleteIndex
+    setDeleteIndex(null)
+    onRemoveExisting(index)
+  }, [deleteIndex, onRemoveExisting])
 
   const countLabel = labels.count.replace('{count}', String(totalCount)).replace('{max}', String(maxFiles))
 
@@ -201,7 +190,7 @@ export function AgreementFilesField({
           ) : null}
           <button
             type="button"
-            onClick={() => void requestDeleteExisting(item.originalIndex)}
+            onClick={() => setDeleteIndex(item.originalIndex)}
             className="inline-flex items-center gap-1 rounded-md border border-red-200 bg-white px-2.5 py-1 text-xs font-semibold text-red-700 hover:bg-red-50 dark:border-red-500/40 dark:bg-slate-900 dark:text-red-300 dark:hover:bg-red-950/40"
           >
             <Trash2 className="h-3 w-3" aria-hidden strokeWidth={1.75} />
@@ -263,6 +252,16 @@ export function AgreementFilesField({
         accent="violet"
         onConfirm={() => setReviewFile(null)}
         onCancel={() => setReviewFile(null)}
+      />
+
+      <ConfirmDialog
+        open={deleteIndex != null}
+        title={labels.deleteExisting}
+        message={labels.deleteExistingConfirm}
+        confirmLabel={labels.deleteExisting}
+        cancelLabel={labels.close}
+        onConfirm={confirmDeleteExisting}
+        onCancel={() => setDeleteIndex(null)}
       />
     </div>
   )

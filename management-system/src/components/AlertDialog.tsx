@@ -23,7 +23,7 @@ export function AlertDialog({ open, message, okLabel, onClose, title }: AlertDia
 
   return createPortal(
     <div
-      className="portal-overlay fixed inset-0 z-[220] flex items-center justify-center p-4 backdrop-blur-sm"
+      className="portal-overlay fixed inset-0 z-[400] flex items-center justify-center p-4 backdrop-blur-sm"
       role="alertdialog"
       aria-modal="true"
       aria-labelledby={title ? 'alert-dialog-title' : undefined}
