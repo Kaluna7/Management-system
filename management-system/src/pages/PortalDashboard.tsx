@@ -1360,6 +1360,7 @@ export function PortalDashboard() {
                         <div className="portal-table-body">
                           {overviewPagination.pageItems.map((record, index) => {
                             const reminder = daysUntilPeriodEnd(record.periodEnd)
+                            const isOverdue = reminder < 0
                             const zebraClass = index % 2 === 0 ? 'portal-list-zebra-a' : 'portal-list-zebra-b'
                             const inFinanceTask =
                               userRole === 'buyers' && isBuyerRecordInFinanceTask(record)
@@ -1424,7 +1425,13 @@ export function PortalDashboard() {
                                   <p className="truncate font-medium portal-heading">{record.vendorName}</p>
                                   <p className="portal-muted truncate text-xs font-normal">{record.vendorCode}</p>
                                 </div>
-                                <div className="portal-table-td portal-table-td-period portal-body font-normal">
+                                <div
+                                  className={`portal-table-td portal-table-td-period portal-body font-normal ${
+                                    isOverdue
+                                      ? 'font-semibold text-red-600 dark:text-red-400'
+                                      : ''
+                                  }`}
+                                >
                                   <span className="portal-table-td-period-start">
                                     {formatDate(record.periodStart, dateLocale)}
                                   </span>

@@ -55,6 +55,11 @@ export function InvoiceSignerFields({ value, onChange, labels, forRole = 'financ
     return [...titles].sort((a, b) => a.localeCompare(b))
   }, [signers])
 
+  const titleSuggestions = useMemo(() => {
+    const titles = new Set<string>([...INVOICE_SIGNER_TITLES, ...titleOptions])
+    return [...titles].sort((a, b) => a.localeCompare(b))
+  }, [titleOptions])
+
   const signersForTitle = useMemo(
     () => signers.filter((s) => s.title === selectedTitle),
     [signers, selectedTitle],
@@ -213,10 +218,7 @@ export function InvoiceSignerFields({ value, onChange, labels, forRole = 'financ
                 className="portal-input w-full"
               />
               <datalist id="invoice-signer-title-suggestions">
-                {INVOICE_SIGNER_TITLES.map((t) => (
-                  <option key={t} value={t} />
-                ))}
-                {titleOptions.map((t) => (
+                {titleSuggestions.map((t) => (
                   <option key={t} value={t} />
                 ))}
               </datalist>
