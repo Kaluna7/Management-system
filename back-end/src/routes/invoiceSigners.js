@@ -1,5 +1,6 @@
 const express = require("express");
 const { prisma } = require("../lib/prisma");
+const { cache, TTL, invalidateInvoiceOptionsCache } = require("../lib/memoryCache");
 
 const router = express.Router();
 
@@ -26,29 +27,48 @@ async function ensureDefaultSigners(forRole) {
       await prisma.invoiceSigner.create({
         data: { ...row, createdByRole: forRole },
       });
+      invalidateInvoiceOptionsCache();
     }
   }
 }
 
 router.get("/", async (req, res) => {
-  const forRole = normalizeForRole(req.query.forRole);
-  if (forRole === "finance") {
-    await ensureDefaultSigners(forRole);
-  }
-  const rows = await prisma.invoiceSigner.findMany({
-    where: { createdByRole: forRole },
-    orderBy: [{ title: "asc" }, { name: "asc" }],
-  });
-  res.json(
-    rows.map((r) => ({
+  try {
+    const forRole = normalizeForRole(req.query.forRole);
+    const cacheKey = `invoice-options:signers:${forRole}`;
+
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      res.set("Cache-Control", "private, max-age=30");
+      res.set("X-Cache", "HIT");
+      return res.json(cached);
+    }
+
+    if (forRole === "finance") {
+      await ensureDefaultSigners(forRole);
+    }
+
+    const rows = await prisma.invoiceSigner.findMany({
+      where: { createdByRole: forRole },
+      orderBy: [{ title: "asc" }, { name: "asc" }],
+    });
+    const payload = rows.map((r) => ({
       id: r.id,
       title: r.title,
       name: r.name,
-    })),
-  );
+    }));
+    cache.set(cacheKey, payload, TTL.invoiceOptions);
+    res.set("Cache-Control", "private, max-age=30");
+    res.set("X-Cache", "MISS");
+    res.json(payload);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ message: e.message || "Failed to load signatories" });
+  }
 });
 
 router.get("/titles", (_req, res) => {
+  res.set("Cache-Control", "public, max-age=3600");
   res.json(SIGNER_TITLES);
 });
 
@@ -63,6 +83,7 @@ router.post("/", async (req, res) => {
     const created = await prisma.invoiceSigner.create({
       data: { title, name, createdByRole: forRole },
     });
+    invalidateInvoiceOptionsCache();
     res.status(201).json({
       id: created.id,
       title: created.title,
@@ -91,6 +112,7 @@ router.delete("/by-title", async (req, res) => {
     if (result.count === 0) {
       return res.status(404).json({ message: "No signatories found for this title." });
     }
+    invalidateInvoiceOptionsCache();
     res.status(204).send();
   } catch (e) {
     console.error(e);
@@ -107,6 +129,7 @@ router.delete("/:id", async (req, res) => {
       return res.status(404).json({ message: "Signatory not found." });
     }
     await prisma.invoiceSigner.delete({ where: { id: req.params.id } });
+    invalidateInvoiceOptionsCache();
     res.status(204).send();
   } catch (e) {
     console.error(e);

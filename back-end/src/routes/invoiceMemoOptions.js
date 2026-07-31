@@ -1,5 +1,6 @@
 const express = require("express");
 const { prisma } = require("../lib/prisma");
+const { cache, TTL, invalidateInvoiceOptionsCache } = require("../lib/memoryCache");
 
 const router = express.Router();
 
@@ -22,6 +23,7 @@ async function ensureDefaultRebateOption(forRole) {
         createdByRole: forRole,
       },
     });
+    invalidateInvoiceOptionsCache();
     return;
   }
   if (existing.label !== "Rebate Bonus Tier") {
@@ -29,25 +31,43 @@ async function ensureDefaultRebateOption(forRole) {
       where: { id: existing.id },
       data: { label: "Rebate Bonus Tier", sortOrder: 0 },
     });
+    invalidateInvoiceOptionsCache();
   }
 }
 
 router.get("/", async (req, res) => {
-  const forRole = normalizeForRole(req.query.forRole);
-  if (forRole === "finance") {
-    await ensureDefaultRebateOption(forRole);
-  }
-  const rows = await prisma.invoiceMemoOption.findMany({
-    where: { createdByRole: forRole },
-    orderBy: [{ sortOrder: "asc" }, { label: "asc" }],
-  });
-  res.json(
-    rows.map((r) => ({
+  try {
+    const forRole = normalizeForRole(req.query.forRole);
+    const cacheKey = `invoice-options:memo:${forRole}`;
+
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      res.set("Cache-Control", "private, max-age=30");
+      res.set("X-Cache", "HIT");
+      return res.json(cached);
+    }
+
+    if (forRole === "finance") {
+      await ensureDefaultRebateOption(forRole);
+    }
+
+    const rows = await prisma.invoiceMemoOption.findMany({
+      where: { createdByRole: forRole },
+      orderBy: [{ sortOrder: "asc" }, { label: "asc" }],
+    });
+    const payload = rows.map((r) => ({
       id: r.id,
       label: r.label,
       template: r.template,
-    })),
-  );
+    }));
+    cache.set(cacheKey, payload, TTL.invoiceOptions);
+    res.set("Cache-Control", "private, max-age=30");
+    res.set("X-Cache", "MISS");
+    res.json(payload);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ message: e.message || "Failed to load memo options" });
+  }
 });
 
 router.post("/", async (req, res) => {
@@ -60,6 +80,7 @@ router.post("/", async (req, res) => {
     const created = await prisma.invoiceMemoOption.create({
       data: { label, template: "custom", sortOrder: 100, createdByRole: forRole },
     });
+    invalidateInvoiceOptionsCache();
     res.status(201).json({
       id: created.id,
       label: created.label,

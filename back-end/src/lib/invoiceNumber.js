@@ -53,13 +53,19 @@ async function allocateFinanceInvoiceNumber(prisma, recordId, existingRecord, ge
 
 /**
  * Replace legacy invoice numbers (e.g. V001-001) with KPU/FINANCE-INV/... on existing task records.
- * Processes in generatedAt order so sequences stay stable.
+ * Single scan — does not re-query for each row.
  */
 async function backfillInvalidFinanceInvoiceNumbers(prisma) {
   const rows = await prisma.buyerRecord.findMany({
     where: { status: { in: TASK_STATUSES } },
     orderBy: [{ generatedAt: "asc" }, { id: "asc" }],
+    select: { id: true, invoice: true, generatedAt: true },
   });
+
+  let maxSeq = 0;
+  for (const row of rows) {
+    maxSeq = Math.max(maxSeq, parseFinanceInvoiceSequence(invoiceNumberFromRow(row)));
+  }
 
   let changed = false;
   for (const row of rows) {
@@ -67,8 +73,9 @@ async function backfillInvalidFinanceInvoiceNumbers(prisma) {
     if (parseFinanceInvoiceSequence(current) > 0) continue;
     if (!row.invoice || typeof row.invoice !== "object" || Array.isArray(row.invoice)) continue;
 
+    maxSeq += 1;
     const generatedAt = row.generatedAt ?? new Date();
-    const newNumber = await allocateFinanceInvoiceNumber(prisma, row.id, row, generatedAt);
+    const newNumber = formatFinanceInvoiceNumber(maxSeq, generatedAt);
     if (newNumber === current) continue;
 
     await prisma.buyerRecord.update({
@@ -83,10 +90,36 @@ async function backfillInvalidFinanceInvoiceNumbers(prisma) {
   return changed;
 }
 
+let backfillPromise = null;
+
+/** Run once at startup (deduped); never on every list GET. */
+function scheduleInvoiceNumberBackfill(prisma) {
+  if (backfillPromise) return backfillPromise;
+  backfillPromise = backfillInvalidFinanceInvoiceNumbers(prisma)
+    .then((changed) => {
+      if (changed) {
+        console.log("[invoice-number] Backfilled legacy invoice numbers");
+        try {
+          const { invalidateRecordsCache } = require("./memoryCache");
+          invalidateRecordsCache();
+        } catch {
+          /* ignore */
+        }
+      }
+      return changed;
+    })
+    .catch((e) => {
+      console.error("[invoice-number] Backfill failed:", e);
+      backfillPromise = null;
+    });
+  return backfillPromise;
+}
+
 module.exports = {
   TASK_STATUSES,
   formatFinanceInvoiceNumber,
   parseFinanceInvoiceSequence,
   allocateFinanceInvoiceNumber,
   backfillInvalidFinanceInvoiceNumbers,
+  scheduleInvoiceNumberBackfill,
 };

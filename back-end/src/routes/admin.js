@@ -4,7 +4,14 @@ const jwt = require("jsonwebtoken");
 const { prisma } = require("../lib/prisma");
 const { mergeFormulaFormFiles, storedFileExists, deleteStoredFile } = require("../lib/recordFiles");
 const { getFormulaFormFileNames, invoiceWithoutFormulaForm } = require("../lib/invoiceJson");
-const { allocateFinanceInvoiceNumber, backfillInvalidFinanceInvoiceNumbers } = require("../lib/invoiceNumber");
+const { allocateFinanceInvoiceNumber } = require("../lib/invoiceNumber");
+const {
+  cache,
+  TTL,
+  adminRecordsCacheKey,
+  invalidateRecordsCache,
+} = require("../lib/memoryCache");
+const { parsePagination, paginationMeta } = require("../lib/pagination");
 const {
   ADMIN_TASK_STATUS,
   adminListWhereForRole,
@@ -106,14 +113,45 @@ router.use(requireAdmin);
 
 router.get("/records", async (req, res) => {
   try {
-    await backfillInvalidFinanceInvoiceNumbers(prisma);
     const includeFinished =
       req.query.includeFinished === "1" || req.query.includeFinished === "true";
+    const where = adminListWhereForRole(req.auth.role, includeFinished);
+    const paging = parsePagination(req.query, { defaultLimit: 50, maxLimit: 100 });
+
+    if (paging) {
+      const [total, records] = await Promise.all([
+        prisma.buyerRecord.count({ where }),
+        prisma.buyerRecord.findMany({
+          where,
+          orderBy: { createdAt: "desc" },
+          skip: paging.skip,
+          take: paging.limit,
+        }),
+      ]);
+      res.set("Cache-Control", "private, no-cache");
+      return res.json({
+        items: records.map(toRecordResponse),
+        ...paginationMeta(total, paging.page, paging.limit),
+      });
+    }
+
+    const cacheKey = adminRecordsCacheKey(req.auth.role, includeFinished);
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      res.set("Cache-Control", "private, max-age=5");
+      res.set("X-Cache", "HIT");
+      return res.json(cached);
+    }
+
     const records = await prisma.buyerRecord.findMany({
-      where: adminListWhereForRole(req.auth.role, includeFinished),
+      where,
       orderBy: { createdAt: "desc" },
     });
-    res.json(records.map(toRecordResponse));
+    const payload = records.map(toRecordResponse);
+    cache.set(cacheKey, payload, TTL.records);
+    res.set("Cache-Control", "private, max-age=5");
+    res.set("X-Cache", "MISS");
+    res.json(payload);
   } catch (e) {
     console.error(e);
     res.status(500).json({ message: e.message || "Failed to load records" });
@@ -189,6 +227,7 @@ router.patch("/records/:id", async (req, res) => {
       where: { id: req.params.id },
       data,
     });
+    invalidateRecordsCache();
     res.json(toRecordResponse(updated));
   } catch {
     res.status(404).json({ message: "Record not found" });
@@ -222,6 +261,7 @@ router.patch("/records/:id/archive", async (req, res) => {
             archivedAt: null,
           },
     });
+    invalidateRecordsCache();
     res.json(toRecordResponse(updated));
   } catch {
     res.status(404).json({ message: "Record not found" });
@@ -250,6 +290,7 @@ router.patch("/records/:id/publish", async (req, res) => {
             status: "archived",
           },
     });
+    invalidateRecordsCache();
     res.json(toRecordResponse(updated));
   } catch {
     res.status(404).json({ message: "Record not found" });
@@ -278,6 +319,7 @@ router.delete("/records/:id/files/formula-form", async (req, res) => {
       where: { id: req.params.id },
       data: { invoice },
     });
+    invalidateRecordsCache();
     res.json(toRecordResponse(updated));
   } catch (e) {
     console.error(e);
@@ -352,6 +394,7 @@ router.post("/records/:id/invoice", upload.array("formulaFormFiles", 5), async (
         publishedAt: null,
       },
     });
+    invalidateRecordsCache();
     res.json(toRecordResponse(updated));
   } catch (e) {
     console.error(e);
@@ -380,6 +423,7 @@ router.delete("/records/:id", async (req, res) => {
     await prisma.buyerRecord.delete({
       where: { id: req.params.id },
     });
+    invalidateRecordsCache();
     res.json({ ok: true });
   } catch {
     res.status(404).json({ message: "Record not found" });

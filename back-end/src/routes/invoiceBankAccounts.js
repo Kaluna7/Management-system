@@ -1,5 +1,6 @@
 const express = require("express");
 const { prisma } = require("../lib/prisma");
+const { cache, TTL, invalidateInvoiceOptionsCache } = require("../lib/memoryCache");
 
 const router = express.Router();
 
@@ -26,27 +27,45 @@ async function ensureDefaultAccount(forRole) {
     await prisma.invoiceBankAccount.create({
       data: { ...DEFAULT_ACCOUNT, createdByRole: forRole },
     });
+    invalidateInvoiceOptionsCache();
   }
 }
 
 router.get("/", async (req, res) => {
-  const forRole = normalizeForRole(req.query.forRole);
-  if (forRole === "finance") {
-    await ensureDefaultAccount(forRole);
-  }
-  const rows = await prisma.invoiceBankAccount.findMany({
-    where: { createdByRole: forRole },
-    orderBy: [{ beneficiaryName: "asc" }, { bankName: "asc" }],
-  });
-  res.json(
-    rows.map((r) => ({
+  try {
+    const forRole = normalizeForRole(req.query.forRole);
+    const cacheKey = `invoice-options:bank:${forRole}`;
+
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      res.set("Cache-Control", "private, max-age=30");
+      res.set("X-Cache", "HIT");
+      return res.json(cached);
+    }
+
+    if (forRole === "finance") {
+      await ensureDefaultAccount(forRole);
+    }
+
+    const rows = await prisma.invoiceBankAccount.findMany({
+      where: { createdByRole: forRole },
+      orderBy: [{ beneficiaryName: "asc" }, { bankName: "asc" }],
+    });
+    const payload = rows.map((r) => ({
       id: r.id,
       beneficiaryName: r.beneficiaryName,
       bankName: r.bankName,
       bankBranch: r.bankBranch,
       accountNo: r.accountNo,
-    })),
-  );
+    }));
+    cache.set(cacheKey, payload, TTL.invoiceOptions);
+    res.set("Cache-Control", "private, max-age=30");
+    res.set("X-Cache", "MISS");
+    res.json(payload);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ message: e.message || "Failed to load bank accounts" });
+  }
 });
 
 router.post("/", async (req, res) => {
@@ -65,6 +84,7 @@ router.post("/", async (req, res) => {
     const created = await prisma.invoiceBankAccount.create({
       data: { beneficiaryName, bankName, bankBranch, accountNo, createdByRole: forRole },
     });
+    invalidateInvoiceOptionsCache();
     res.status(201).json({
       id: created.id,
       beneficiaryName: created.beneficiaryName,
@@ -90,6 +110,7 @@ router.delete("/:id", async (req, res) => {
       return res.status(404).json({ message: "Bank account not found." });
     }
     await prisma.invoiceBankAccount.delete({ where: { id: req.params.id } });
+    invalidateInvoiceOptionsCache();
     res.status(204).send();
   } catch (e) {
     console.error(e);

@@ -1,14 +1,50 @@
 const express = require("express");
 const { prisma } = require("../lib/prisma");
+const { cache, TTL, invalidateVendorsCache } = require("../lib/memoryCache");
+const { parsePagination, paginationMeta } = require("../lib/pagination");
 
 const router = express.Router();
 
-router.get("/", async (_req, res) => {
-  const vendors = await prisma.vendor.findMany({
-    orderBy: { code: "asc" },
-    select: { code: true, name: true },
-  });
-  res.json(vendors);
+router.get("/", async (req, res) => {
+  try {
+    const paging = parsePagination(req.query, { defaultLimit: 100, maxLimit: 500 });
+
+    if (paging) {
+      const [total, vendors] = await Promise.all([
+        prisma.vendor.count(),
+        prisma.vendor.findMany({
+          orderBy: { code: "asc" },
+          select: { code: true, name: true },
+          skip: paging.skip,
+          take: paging.limit,
+        }),
+      ]);
+      res.set("Cache-Control", "private, max-age=30");
+      return res.json({
+        items: vendors,
+        ...paginationMeta(total, paging.page, paging.limit),
+      });
+    }
+
+    const cached = cache.get("vendors:all");
+    if (cached) {
+      res.set("Cache-Control", "private, max-age=30");
+      res.set("X-Cache", "HIT");
+      return res.json(cached);
+    }
+
+    const vendors = await prisma.vendor.findMany({
+      orderBy: { code: "asc" },
+      select: { code: true, name: true },
+    });
+    cache.set("vendors:all", vendors, TTL.vendors);
+    res.set("Cache-Control", "private, max-age=30");
+    res.set("X-Cache", "MISS");
+    res.json(vendors);
+  } catch (e) {
+    console.error(e);
+    res.status(500).json({ message: e.message || "Failed to load vendors" });
+  }
 });
 
 router.post("/", async (req, res) => {
@@ -22,6 +58,7 @@ router.post("/", async (req, res) => {
       data: { code, name },
       select: { code: true, name: true },
     });
+    invalidateVendorsCache();
     res.status(201).json(created);
   } catch (e) {
     if (e && typeof e === "object" && "code" in e && e.code === "P2002") {
@@ -52,6 +89,7 @@ router.delete("/:code", async (req, res) => {
       });
     }
     await prisma.vendor.delete({ where: { code } });
+    invalidateVendorsCache();
     res.json({ ok: true, code });
   } catch (e) {
     console.error(e);

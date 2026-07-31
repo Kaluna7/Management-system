@@ -132,4 +132,11 @@ model BuyerRecord {
   buyerEditResolvedAt     DateTime?
   buyerEditResolvedBy     String?
   updatedAt           DateTime @updatedAt
+
+  @@index([status])
+  @@index([createdAt])
+  @@index([vendorCode])
+  @@index([status, createdAt])
+  @@index([createdByRole, status])
+  @@index([periodEnd])
 }

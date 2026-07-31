@@ -1,6 +1,7 @@
 const path = require("path");
 const express = require("express");
 const cors = require("cors");
+const compression = require("compression");
 const multer = require("multer");
 const {
   agreementUploadMiddleware,
@@ -36,10 +37,14 @@ const invoiceBankAccountsRouter = require("./routes/invoiceBankAccounts");
 const invoiceMemoOptionsRouter = require("./routes/invoiceMemoOptions");
 const invoiceSignersRouter = require("./routes/invoiceSigners");
 const { emitRecordCreated, emitRecordUpdated } = require("./lib/realtime");
+const { allocateFinanceInvoiceNumber } = require("./lib/invoiceNumber");
 const {
-  allocateFinanceInvoiceNumber,
-  backfillInvalidFinanceInvoiceNumbers,
-} = require("./lib/invoiceNumber");
+  cache,
+  TTL,
+  recordsCacheKey,
+  invalidateRecordsCache,
+} = require("./lib/memoryCache");
+const { parsePagination, paginationMeta } = require("./lib/pagination");
 
 const app = express();
 const upload = multer({
@@ -51,7 +56,8 @@ ensureStorageRoot();
 ensureProfilesRoot();
 
 app.use(cors());
-app.use(express.json());
+app.use(compression());
+app.use(express.json({ limit: "2mb" }));
 
 app.get("/", (_req, res) => {
   res.json({
@@ -110,13 +116,44 @@ function toRecordResponse(record) {
   };
 }
 
-app.get("/api/records", async (_req, res) => {
+app.get("/api/records", async (req, res) => {
   try {
-    await backfillInvalidFinanceInvoiceNumbers(prisma);
+    const paging = parsePagination(req.query, { defaultLimit: 50, maxLimit: 100 });
+
+    if (paging) {
+      const where = {};
+      const [total, records] = await Promise.all([
+        prisma.buyerRecord.count({ where }),
+        prisma.buyerRecord.findMany({
+          where,
+          orderBy: { createdAt: "desc" },
+          skip: paging.skip,
+          take: paging.limit,
+        }),
+      ]);
+      res.set("Cache-Control", "private, no-cache");
+      return res.json({
+        items: records.map(toRecordResponse),
+        ...paginationMeta(total, paging.page, paging.limit),
+      });
+    }
+
+    const cacheKey = recordsCacheKey();
+    const cached = cache.get(cacheKey);
+    if (cached) {
+      res.set("Cache-Control", "private, max-age=5");
+      res.set("X-Cache", "HIT");
+      return res.json(cached);
+    }
+
     const records = await prisma.buyerRecord.findMany({
       orderBy: { createdAt: "desc" },
     });
-    res.json(records.map(toRecordResponse));
+    const payload = records.map(toRecordResponse);
+    cache.set(cacheKey, payload, TTL.records);
+    res.set("Cache-Control", "private, max-age=5");
+    res.set("X-Cache", "MISS");
+    res.json(payload);
   } catch (e) {
     console.error(e);
     res.status(500).json({ message: e.message || "Failed to load records" });
@@ -125,6 +162,7 @@ app.get("/api/records", async (_req, res) => {
 
 app.delete("/api/records", async (_req, res) => {
   const result = await prisma.buyerRecord.deleteMany({});
+  invalidateRecordsCache();
   res.json({ deleted: result.count });
 });
 
@@ -163,6 +201,7 @@ app.post("/api/records", agreementUploadMiddleware, async (req, res) => {
     });
     const fresh = await prisma.buyerRecord.findUnique({ where: { id: created.id } });
     const response = toRecordResponse(fresh);
+    invalidateRecordsCache();
     emitRecordCreated(response);
     try {
       await sendDeadlineReminderForRecord(created.id);
@@ -261,6 +300,7 @@ app.patch("/api/records/:id", agreementUploadMiddleware, async (req, res) => {
       data,
     });
     const response = toRecordResponse(updated);
+    invalidateRecordsCache();
     emitRecordUpdated(response);
     res.json(response);
   } catch (e) {
@@ -280,6 +320,7 @@ app.patch("/api/records/:id/invoice-received", async (req, res) => {
     },
   });
   const response = toRecordResponse(updated);
+  invalidateRecordsCache();
   emitRecordUpdated(response);
   res.json(response);
 });
@@ -345,6 +386,7 @@ app.post("/api/records/:id/invoice", formulaFormUploadMiddleware, async (req, re
       },
     });
     const response = toRecordResponse(updated);
+    invalidateRecordsCache();
     emitRecordUpdated(response);
     res.json(response);
   } catch (e) {
@@ -374,6 +416,7 @@ app.post("/api/records/:id/stamped-paper", upload.single("file"), async (req, re
       },
     });
     const response = toRecordResponse(updated);
+    invalidateRecordsCache();
     emitRecordUpdated(response);
     res.json(response);
   } catch (e) {
@@ -496,6 +539,7 @@ app.post("/api/records/:id/buyer-edit-request", async (req, res) => {
       },
     });
     const response = toRecordResponse(updated);
+    invalidateRecordsCache();
     emitRecordUpdated(response);
     res.json(response);
   } catch (e) {
@@ -532,6 +576,7 @@ app.patch("/api/records/:id/buyer-edit-request", async (req, res) => {
         },
       });
       const response = toRecordResponse(updated);
+      invalidateRecordsCache();
       emitRecordUpdated(response);
       return res.json(response);
     }
@@ -544,6 +589,7 @@ app.patch("/api/records/:id/buyer-edit-request", async (req, res) => {
       },
     });
     const response = toRecordResponse(updated);
+    invalidateRecordsCache();
     emitRecordUpdated(response);
     res.json(response);
   } catch (e) {
@@ -575,6 +621,7 @@ app.post("/api/records/:id/publish", async (req, res) => {
       },
     });
     const response = toRecordResponse(updated);
+    invalidateRecordsCache();
     emitRecordUpdated(response);
     res.json(response);
   } catch (e) {

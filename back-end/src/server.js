@@ -3,6 +3,8 @@ const http = require("http");
 const cron = require("node-cron");
 const { Server } = require("socket.io");
 const app = require("./app");
+const { prisma } = require("./lib/prisma");
+const { scheduleInvoiceNumberBackfill } = require("./lib/invoiceNumber");
 const { runDeadlineReminderJob } = require("./services/deadlineReminderEmails");
 const { logConfiguredSender } = require("./lib/mailer");
 const { initRealtime } = require("./lib/realtime");
@@ -22,6 +24,7 @@ httpServer.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
   console.log(`WebSocket (Socket.IO) enabled on the same port`);
   logConfiguredSender();
+  scheduleInvoiceNumberBackfill(prisma);
 });
 
 if (process.env.DISABLE_DEADLINE_CRON !== "true") {
