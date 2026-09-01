@@ -72,7 +72,7 @@ type PeriodRangePickerProps = {
   onChange: (next: PeriodRangeValue) => void
   displayLocale: string
   labels: Labels
-  /** Earliest selectable day (YYYY-MM-DD). Defaults to today; past dates are disabled. */
+  /** Earliest selectable day (YYYY-MM-DD). Omit to allow any date including the past. */
   minDate?: string
 }
 
@@ -81,7 +81,7 @@ export function PeriodRangePicker({
   onChange,
   displayLocale,
   labels,
-  minDate = todayIsoDateLocal(),
+  minDate,
 }: PeriodRangePickerProps) {
   const id = useId()
   const rootRef = useRef<HTMLDivElement>(null)
@@ -122,7 +122,7 @@ export function PeriodRangePicker({
 
   const handleDayClick = (d: Date) => {
     const iso = toIsoDateLocal(d)
-    if (isBeforeIsoDate(iso, minDate)) return
+    if (minDate && isBeforeIsoDate(iso, minDate)) return
     const { start, end } = value
     if (!start || (start && end)) {
       onChange({ start: iso, end: '' })
@@ -162,7 +162,7 @@ export function PeriodRangePicker({
               return <div key={`e-${y}-${m}-${idx}`} className="aspect-square" />
             }
             const iso = toIsoDateLocal(cell)
-            const isPast = isBeforeIsoDate(iso, minDate)
+            const isPast = Boolean(minDate && isBeforeIsoDate(iso, minDate))
             const inRange =
               value.start &&
               value.end &&

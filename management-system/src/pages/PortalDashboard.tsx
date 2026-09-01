@@ -1032,22 +1032,7 @@ export function PortalDashboard() {
       void showAlert(t('periodRangeOrderInvalid'))
       return
     }
-    const today = todayIsoDateLocal()
-    const originalStart = editingBuyerRecord
-      ? periodIsoToDateInput(editingBuyerRecord.periodStart)
-      : ''
-    const originalEnd = editingBuyerRecord
-      ? periodIsoToDateInput(editingBuyerRecord.periodEnd)
-      : ''
-    const periodChanged =
-      periodRange.start !== originalStart || periodRange.end !== originalEnd
-    if (
-      periodChanged &&
-      (periodRange.start < today || periodRange.end < today)
-    ) {
-      void showAlert(t('periodRangePastInvalid'))
-      return
-    }
+
     const keepSlots = existingAgreementNames
       .map((_, index) => index)
       .filter((index) => !removedExistingAgreementSlots.has(index))

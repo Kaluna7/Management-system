@@ -260,11 +260,6 @@ export function Dashboard() {
       void showAlert('Tanggal akhir tidak boleh sebelum tanggal awal.')
       return
     }
-    const today = todayIsoDateLocal()
-    if (buyerForm.periodStart < today || buyerForm.periodEnd < today) {
-      void showAlert('Tanggal yang sudah lewat tidak bisa dipilih. Pilih hari ini atau tanggal mendatang.')
-      return
-    }
     try {
       await createBuyerData(
         { ...buyerForm, amount: amountParsed, agreementFileName: agreementFile.name },
