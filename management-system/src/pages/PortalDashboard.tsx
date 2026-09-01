@@ -82,6 +82,7 @@ import { useRealtime } from '../context/RealtimeContext'
 import { useRecordPublishCelebration } from '../hooks/useRecordPublishCelebration'
 import { recordWorkingByOther } from '../utils/recordWorking'
 import { previewInvoiceNumberForRecord } from '../utils/invoiceNumberFromRecord'
+import { isFileTooLargeForUpload } from '../utils/fileUploadLimits'
 import { VendorPickerField } from '../components/VendorPickerField'
 import { useVendors } from '../hooks/useVendors'
 import { useListPagination } from '../hooks/useListPagination'
@@ -1059,6 +1060,11 @@ export function PortalDashboard() {
       keepSlots,
       agreementFiles.map((f) => f.name),
     )
+
+    if (agreementFiles.some((file) => isFileTooLargeForUpload(file))) {
+      void showAlert(t('fileTooLarge'))
+      return
+    }
 
     const payload = {
       vendorCode,
