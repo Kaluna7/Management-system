@@ -1,5 +1,9 @@
 import { useCallback, useEffect, useId, useState } from 'react'
 import { useAppDialog } from '../context/AppDialogContext'
+import {
+  isFileTooLargeForInlinePreview,
+  isFileTooLargeForUpload,
+} from '../utils/fileUploadLimits'
 import { ConfirmDialog } from './ConfirmDialog'
 import { ModalCloseButton } from './ModalCloseButton'
 
@@ -26,6 +30,8 @@ export type AgreementFileFieldProps = {
     confirmFile: string
     cancelPick: string
     invalidFile?: string
+    fileTooLarge?: string
+    previewSkippedLarge?: string
     currentFile?: string
     replaceHint?: string
     deleteExisting?: string
@@ -73,6 +79,10 @@ export function AgreementFileField({
       setObjectUrl(null)
       return
     }
+    if (isFileTooLargeForInlinePreview(previewTarget)) {
+      setObjectUrl(null)
+      return
+    }
     const url = URL.createObjectURL(previewTarget)
     setObjectUrl(url)
     return () => URL.revokeObjectURL(url)
@@ -80,6 +90,7 @@ export function AgreementFileField({
 
   const canPreviewLocal =
     previewTarget != null &&
+    !isFileTooLargeForInlinePreview(previewTarget) &&
     (PREVIEWABLE_IMAGE.test(previewTarget.type) || PREVIEWABLE_PDF.test(previewTarget.type))
 
   const canPreviewExisting =
@@ -122,13 +133,17 @@ export function AgreementFileField({
       const picked = event.target.files?.[0] ?? null
       event.target.value = ''
       if (!picked) return
+      if (isFileTooLargeForUpload(picked)) {
+        if (labels.fileTooLarge) void showAlert(labels.fileTooLarge)
+        return
+      }
       if (pdfOnly && !isPdfFile(picked)) {
         if (labels.invalidFile) void showAlert(labels.invalidFile)
         return
       }
       openStagingPreview(picked)
     },
-    [openStagingPreview, pdfOnly, labels.invalidFile, showAlert],
+    [openStagingPreview, pdfOnly, labels.invalidFile, labels.fileTooLarge, showAlert],
   )
 
   const labelClass = portalUI ? 'portal-subheading block font-medium' : 'block font-medium text-slate-700'
@@ -289,6 +304,10 @@ export function AgreementFileField({
                     className="mx-auto max-h-[min(65vh,680px)] max-w-full rounded-lg object-contain"
                   />
                 )
+              ) : previewTarget && isFileTooLargeForInlinePreview(previewTarget) ? (
+                <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                  {labels.previewSkippedLarge ?? labels.previewUnavailable}
+                </p>
               ) : (
                 <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                   {labels.previewUnavailable}

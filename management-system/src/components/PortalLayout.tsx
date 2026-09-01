@@ -6,6 +6,7 @@ import { LanguageToggle } from './LanguageToggle'
 import { PortalNotifications } from './PortalNotifications'
 import { ProfileMenu } from './ProfileMenu'
 import type { StringKey } from '../i18n/strings'
+import type { PortalNotificationKind } from '../utils/portalNotifications'
 
 export type PortalNavIcon = 'overview' | 'task' | 'archive' | 'history'
 
@@ -45,7 +46,7 @@ type Props = {
   roleLabelKey: StringKey
   navItems: PortalNavItem[]
   t: (key: StringKey) => string
-  onNotificationRecordSelect?: (recordId: string, kind?: 'stamp_upload' | 'period_expiry') => void
+  onNotificationRecordSelect?: (recordId: string, kind?: PortalNotificationKind) => void
   children: ReactNode
 }
 

@@ -350,6 +350,9 @@ export const STRINGS = {
     fileUploadQueueProgress: 'File {current} of {total}',
     agreementCancelPick: 'Cancel',
     agreementPreviewUnavailable: 'Preview not available for this file type.',
+    fileTooLarge: 'File too large (max 30 MB per file).',
+    filePreviewSkippedLarge:
+      'Preview skipped for this large file ({size}). You can still upload it.',
     agreementRemoveFile: 'Remove',
     agreementDeleteFile: 'Delete',
     agreementDeleteConfirm: 'Are you sure you want to delete this file? You must upload a new file before saving.',
@@ -835,6 +838,9 @@ export const STRINGS = {
     fileUploadQueueProgress: 'Berkas {current} dari {total}',
     agreementCancelPick: 'Batal',
     agreementPreviewUnavailable: 'Pratinjau tidak tersedia untuk jenis berkas ini.',
+    fileTooLarge: 'Berkas terlalu besar (maks. 30 MB per berkas).',
+    filePreviewSkippedLarge:
+      'Pratinjau dilewati karena berkas besar ({size}). Anda tetap bisa mengunggah.',
     agreementRemoveFile: 'Hapus',
     agreementDeleteFile: 'Hapus berkas',
     agreementDeleteConfirm: 'Yakin ingin menghapus berkas ini? Anda harus mengunggah berkas baru sebelum menyimpan.',

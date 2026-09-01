@@ -84,6 +84,8 @@ function TaskStampRow({
             confirmUpload: 'Upload',
             publish: 'Publish',
             previewUnavailable: 'Preview not available for this file type.',
+            previewSkippedLarge: 'Preview skipped for this large file ({size}). You can still upload it.',
+            fileTooLarge: 'File too large (max 30 MB per file).',
             uploading: 'Uploading…',
             publishing: 'Publishing…',
           }}
@@ -320,7 +322,7 @@ export function Dashboard() {
             formulaFormFileName: formulaFormFile.name,
           },
           userName,
-          formulaFormFile,
+          { newFiles: [formulaFormFile], keepSlots: [] },
         )
         setTab('task')
       } catch (e) {

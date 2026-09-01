@@ -38,11 +38,9 @@ import {
 } from '../utils/recordFileDownload'
 import { formatIdrAmountInputValue, formatIdrWhileTyping, parseIdrAmountInput } from '../utils/idrAmountInput'
 import {
-  canBuyerRequestEditPermission,
   hasApprovedBuyerEditRequest,
   hasPendingBuyerEditRequest,
   isBuyerEditRequestDenied,
-  isBuyerPortalRecordEditable,
   isBuyerRecordInFinanceTask,
   isFinanceTaskPausedForBuyerEdit,
   periodIsoToDateInput,
@@ -83,10 +81,7 @@ import {
 import { useRealtime } from '../context/RealtimeContext'
 import { useRecordPublishCelebration } from '../hooks/useRecordPublishCelebration'
 import { recordWorkingByOther } from '../utils/recordWorking'
-import {
-  previewInvoiceNumberForRecord,
-  resolveInvoiceNumberForRecord,
-} from '../utils/invoiceNumberFromRecord'
+import { previewInvoiceNumberForRecord } from '../utils/invoiceNumberFromRecord'
 import { VendorPickerField } from '../components/VendorPickerField'
 import { useVendors } from '../hooks/useVendors'
 import { useListPagination } from '../hooks/useListPagination'
@@ -223,6 +218,8 @@ function FinanceTaskRow({
     viewStamped: string
     publish: string
     previewUnavailable: string
+    previewSkippedLarge: string
+    fileTooLarge: string
     uploading: string
     publishing: string
   }
@@ -360,6 +357,8 @@ function FinanceTaskRow({
               confirmUpload: stampUploadLabels.confirmUpload,
               publish: stampUploadLabels.publish,
               previewUnavailable: stampUploadLabels.previewUnavailable,
+              previewSkippedLarge: stampUploadLabels.previewSkippedLarge,
+              fileTooLarge: stampUploadLabels.fileTooLarge,
               uploading: stampUploadLabels.uploading,
               publishing: stampUploadLabels.publishing,
             }}
@@ -806,6 +805,13 @@ export function PortalDashboard() {
     financeEngagedRecordId,
   ])
 
+  const buyerPresenceRecordId = useMemo(() => {
+    if (userRole !== 'buyers') return null
+    if (editingBuyerRecordId) return editingBuyerRecordId
+    if (detailRecordId) return detailRecordId
+    return null
+  }, [userRole, editingBuyerRecordId, detailRecordId])
+
   const financeWorkingPresence = useMemo(
     () => ({
       userName,
@@ -828,14 +834,13 @@ export function PortalDashboard() {
   ])
 
   useEffect(() => {
-    if (userRole !== 'buyers' || !editingBuyerRecordId) return
-    emitBuyerEditingStart(editingBuyerRecordId, financeWorkingPresence)
+    if (!buyerPresenceRecordId) return
+    emitBuyerEditingStart(buyerPresenceRecordId, financeWorkingPresence)
     return () => {
-      emitBuyerEditingStop(editingBuyerRecordId)
+      emitBuyerEditingStop(buyerPresenceRecordId)
     }
   }, [
-    userRole,
-    editingBuyerRecordId,
+    buyerPresenceRecordId,
     financeWorkingPresence,
     emitBuyerEditingStart,
     emitBuyerEditingStop,
@@ -1441,7 +1446,7 @@ export function PortalDashboard() {
                                   </span>
                                 </div>
                                 <div className="portal-table-td">
-                                  {userRole === 'finance' && blocked && remoteWorking ? (
+                                  {blocked && remoteWorking ? (
                                     <RecordWorkingOverlay
                                       variant="inline"
                                       processingLabel={t('recordProcessing')}
@@ -1458,22 +1463,11 @@ export function PortalDashboard() {
                                 </div>
                                 {userRole === 'buyers' ? (
                                   <div
-                                    className={`portal-table-td portal-table-td--docs ${blocked ? 'portal-table-td--presence' : ''}`}
+                                    className="portal-table-td portal-table-td--docs"
                                     onClick={(e) => e.stopPropagation()}
                                     onKeyDown={(e) => e.stopPropagation()}
                                   >
-                                    {blocked && remoteWorking ? (
-                                      <RecordWorkingOverlay
-                                        variant="inline"
-                                        processingLabel={t('recordProcessing')}
-                                        userName={remoteWorking.userName}
-                                        avatarPreset={remoteWorking.avatarPreset}
-                                        title={t('recordWorkingBy').replace(
-                                          '{name}',
-                                          remoteWorking.userName,
-                                        )}
-                                      />
-                                    ) : recordDocuments.length > 0 ? (
+                                    {recordDocuments.length > 0 ? (
                                       <div className="flex flex-wrap content-start gap-1.5">
                                         {recordDocuments.map((doc) => (
                                           <button
@@ -1599,6 +1593,8 @@ export function PortalDashboard() {
                                     viewStamped: t('taskStampViewUploaded'),
                                     publish: t('taskStampPublish'),
                                     previewUnavailable: t('taskStampPreviewUnavailable'),
+                                    previewSkippedLarge: t('filePreviewSkippedLarge'),
+                                    fileTooLarge: t('fileTooLarge'),
                                     uploading: t('loadingData'),
                                     publishing: t('taskStampPublishing'),
                                   }}
@@ -1811,7 +1807,7 @@ export function PortalDashboard() {
                                           </button>
                                           {record.invoice
                                             ? formulaFormFileNamesFromInvoice(record.invoice).map(
-                                                (name, formulaIndex) => (
+                                                (_name, formulaIndex) => (
                                                   <button
                                                     key={`formula-${formulaIndex}`}
                                                     type="button"
@@ -1832,7 +1828,7 @@ export function PortalDashboard() {
                                                 ),
                                               )
                                             : null}
-                                          {agreementFileNamesFromRecord(record).map((name, agreementIndex) => (
+                                          {agreementFileNamesFromRecord(record).map((_name, agreementIndex) => (
                                             <button
                                               key={`agreement-${agreementIndex}`}
                                               type="button"
@@ -2246,11 +2242,13 @@ export function PortalDashboard() {
                     confirmFile: t('invFormulaConfirmFile'),
                     cancelPick: t('agreementCancelPick'),
                     previewUnavailable: t('agreementPreviewUnavailable'),
+                    previewSkippedLarge: t('filePreviewSkippedLarge'),
                     queueProgress: t('fileUploadQueueProgress'),
                     remove: t('agreementRemoveFile'),
                     deleteExisting: t('agreementDeleteFile'),
                     deleteExistingConfirm: t('invFormulaDeleteConfirm'),
                     invalidFile: t('invFormulaPdfRequired'),
+                    fileTooLarge: t('fileTooLarge'),
                     close: t('close'),
                   }}
                 />
@@ -2418,8 +2416,10 @@ export function PortalDashboard() {
                   confirmFile: t('agreementConfirmFile'),
                   cancelPick: t('agreementCancelPick'),
                   previewUnavailable: t('agreementPreviewUnavailable'),
+                  previewSkippedLarge: t('filePreviewSkippedLarge'),
                   queueProgress: t('fileUploadQueueProgress'),
                   invalidFile: t('agreementPreviewUnavailable'),
+                  fileTooLarge: t('fileTooLarge'),
                   deleteExisting: t('agreementDeleteFile'),
                   deleteExistingConfirm: t('agreementDeleteConfirm'),
                   remove: t('agreementRemoveFile'),
@@ -2590,6 +2590,8 @@ export function PortalDashboard() {
                                   confirmUpload: t('taskStampConfirmUpload'),
                                   publish: t('taskStampPublish'),
                                   previewUnavailable: t('taskStampPreviewUnavailable'),
+                                  previewSkippedLarge: t('filePreviewSkippedLarge'),
+                                  fileTooLarge: t('fileTooLarge'),
                                   uploading: t('loadingData'),
                                   publishing: t('taskStampPublishing'),
                                 }}

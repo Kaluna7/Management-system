@@ -2,7 +2,12 @@ const {
   verifySocketToken,
   isFinancePortalRole,
   isBuyerPortalRole,
+  isPortalRole,
 } = require("./socketAuth");
+
+function normalizeStableUserId(userId) {
+  return String(userId ?? "").trim();
+}
 
 /** @type {import('socket.io').Server | null} */
 let io = null;
@@ -58,8 +63,18 @@ function initRealtime(serverIo) {
       socket.data.userId = verified.userId;
       socket.data.role = verified.role;
     } else {
-      socket.data.userId = `anon-${socket.id}`;
-      socket.data.role = null;
+      const demoUserId = normalizeStableUserId(socket.handshake.auth?.demoUserId);
+      const demoRole =
+        socket.handshake.auth?.demoRole != null ? String(socket.handshake.auth.demoRole) : null;
+      const allowDemoSocket =
+        process.env.NODE_ENV !== "production" || process.env.ALLOW_DEMO_SOCKET === "true";
+      if (allowDemoSocket && demoUserId && isPortalRole(demoRole)) {
+        socket.data.userId = demoUserId;
+        socket.data.role = demoRole;
+      } else {
+        socket.data.userId = `anon-${socket.id}`;
+        socket.data.role = null;
+      }
     }
     next();
   });

@@ -1,5 +1,4 @@
 import { useEffect, useRef, useState } from 'react'
-import { LottieAnimation } from './LottieAnimation'
 import { ModalCloseButton } from './ModalCloseButton'
 import { loadLottieWeb, type LottieJson, type LottiePlayer } from '../lib/lottieWeb'
 

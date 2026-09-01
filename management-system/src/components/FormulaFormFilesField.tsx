@@ -2,6 +2,7 @@ import { useCallback, useId, useState } from 'react'
 import { Download, Eye, Trash2, X } from 'lucide-react'
 import { useAppDialog } from '../context/AppDialogContext'
 import { FORMULA_FORM_MAX } from '../utils/formulaFormFiles'
+import { isFileTooLargeForUpload } from '../utils/fileUploadLimits'
 import { ConfirmDialog } from './ConfirmDialog'
 import { StagedFilePreviewModal } from './StagedFilePreviewModal'
 
@@ -23,8 +24,10 @@ export type FormulaFormFilesFieldLabels = {
   confirmFile: string
   cancelPick: string
   previewUnavailable: string
+  previewSkippedLarge?: string
   queueProgress?: string
   invalidFile: string
+  fileTooLarge: string
   deleteExisting: string
   deleteExistingConfirm: string
   close: string
@@ -107,14 +110,18 @@ export function FormulaFormFilesField({
       if (valid.length < picked.length) {
         void showAlert(labels.invalidFile)
       }
-      if (valid.length === 0) return
+      const sized = valid.filter((file) => !isFileTooLargeForUpload(file))
+      if (sized.length < valid.length) {
+        void showAlert(labels.fileTooLarge)
+      }
+      if (sized.length === 0) return
 
       const room = maxFiles - totalCount
       if (room <= 0) return
-      setStagingQueue(valid.slice(0, room))
+      setStagingQueue(sized.slice(0, room))
       setStagingIndex(0)
     },
-    [labels.invalidFile, maxFiles, showAlert, totalCount],
+    [labels.invalidFile, labels.fileTooLarge, maxFiles, showAlert, totalCount],
   )
 
   const confirmDeleteExisting = useCallback(() => {
@@ -130,6 +137,7 @@ export function FormulaFormFilesField({
     confirmFile: labels.confirmFile,
     cancelPick: labels.cancelPick,
     previewUnavailable: labels.previewUnavailable,
+    previewSkippedLarge: labels.previewSkippedLarge,
     queueProgress: labels.queueProgress,
   }
 

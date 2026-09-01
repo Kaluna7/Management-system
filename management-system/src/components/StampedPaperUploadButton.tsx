@@ -1,5 +1,11 @@
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
+import { useAppDialog } from '../context/AppDialogContext'
+import {
+  formatFileSize,
+  isFileTooLargeForInlinePreview,
+  isFileTooLargeForUpload,
+} from '../utils/fileUploadLimits'
 import { ModalCloseButton } from './ModalCloseButton'
 
 const PREVIEWABLE_IMAGE = /^image\//i
@@ -12,6 +18,8 @@ export type StampedPaperUploadButtonLabels = {
   confirmUpload: string
   publish: string
   previewUnavailable: string
+  previewSkippedLarge: string
+  fileTooLarge: string
   uploading: string
   publishing: string
 }
@@ -50,6 +58,7 @@ export function StampedPaperUploadButton({
   uploadedFileName = '',
   serverPreviewUrl,
 }: Props) {
+  const { showAlert } = useAppDialog()
   const inputId = useId()
   const inputRef = useRef<HTMLInputElement>(null)
   const [stagingFile, setStagingFile] = useState<File | null>(null)
@@ -60,19 +69,22 @@ export function StampedPaperUploadButton({
   const previewSource = stagingFile
   const serverPreview = stampUploaded && !stagingFile ? serverPreviewUrl : null
   const displayName = stagingFile?.name ?? uploadedFileName
+  const previewSkippedLarge =
+    previewSource != null && isFileTooLargeForInlinePreview(previewSource)
 
   useEffect(() => {
-    if (!previewOpen || !previewSource) {
+    if (!previewOpen || !previewSource || previewSkippedLarge) {
       if (!serverPreview) setObjectUrl(null)
       return
     }
     const url = URL.createObjectURL(previewSource)
     setObjectUrl(url)
     return () => URL.revokeObjectURL(url)
-  }, [previewOpen, previewSource, serverPreview])
+  }, [previewOpen, previewSource, previewSkippedLarge, serverPreview])
 
   const canPreviewLocal =
     previewSource != null &&
+    !previewSkippedLarge &&
     (PREVIEWABLE_IMAGE.test(previewSource.type) || PREVIEWABLE_PDF.test(previewSource.type))
 
   const canPreviewServer =
@@ -96,34 +108,52 @@ export function StampedPaperUploadButton({
     return () => window.removeEventListener('keydown', onKey)
   }, [previewOpen, closePreview, busy])
 
-  const onInputChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
-    const picked = event.target.files?.[0] ?? null
-    event.target.value = ''
-    if (!picked) return
-    setStagingFile(picked)
-    setPreviewOpen(true)
-  }, [])
+  const onInputChange = useCallback(
+    (event: React.ChangeEvent<HTMLInputElement>) => {
+      const picked = event.target.files?.[0] ?? null
+      event.target.value = ''
+      if (!picked) return
+      if (isFileTooLargeForUpload(picked)) {
+        void showAlert(labels.fileTooLarge)
+        return
+      }
+      setStagingFile(picked)
+      setPreviewOpen(true)
+    },
+    [labels.fileTooLarge, showAlert],
+  )
 
-  const confirmPublish = useCallback(async () => {
-    if (busy) return
-    if (!stagingFile && !stampUploaded) return
-    if (!stagingFile && !onPublish) return
+  const confirmUpload = useCallback(async () => {
+    if (busy || !stagingFile) return
     setBusy(true)
     try {
-      if (stagingFile) {
-        await onConfirm(recordId, stagingFile)
-        setStagingFile(null)
-      }
-      if (onPublish) {
-        await onPublish(recordId)
-      }
+      await onConfirm(recordId, stagingFile)
+      setStagingFile(null)
       closePreview()
     } catch {
       /* keep modal open on failure */
     } finally {
       setBusy(false)
     }
-  }, [busy, stagingFile, stampUploaded, onPublish, onConfirm, recordId, closePreview])
+  }, [busy, stagingFile, onConfirm, recordId, closePreview])
+
+  const confirmPublish = useCallback(async () => {
+    if (busy || !stampUploaded || !onPublish) return
+    setBusy(true)
+    try {
+      await onPublish(recordId)
+      closePreview()
+    } catch {
+      /* keep modal open on failure */
+    } finally {
+      setBusy(false)
+    }
+  }, [busy, stampUploaded, onPublish, recordId, closePreview])
+
+  const previewSkippedMessage = labels.previewSkippedLarge.replace(
+    '{size}',
+    previewSource ? formatFileSize(previewSource.size) : '',
+  )
 
   const modal =
     previewOpen &&
@@ -159,9 +189,15 @@ export function StampedPaperUploadButton({
                 <img
                   src={objectUrl}
                   alt={displayName}
+                  loading="lazy"
+                  decoding="async"
                   className="mx-auto max-h-[min(65vh,680px)] max-w-full rounded-lg object-contain"
                 />
               )
+            ) : previewSkippedLarge ? (
+              <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-600/40 dark:bg-amber-950/30 dark:text-amber-100">
+                {previewSkippedMessage}
+              </p>
             ) : serverPreview && canPreviewServer ? (
               isPdfName(uploadedFileName) ? (
                 <iframe
@@ -173,6 +209,8 @@ export function StampedPaperUploadButton({
                 <img
                   src={serverPreview}
                   alt={displayName}
+                  loading="lazy"
+                  decoding="async"
                   className="mx-auto max-h-[min(65vh,680px)] max-w-full rounded-lg object-contain"
                 />
               )
@@ -183,13 +221,32 @@ export function StampedPaperUploadButton({
             )}
           </div>
           <div className="portal-divider flex flex-wrap justify-end gap-2 border-t px-4 py-3">
+            {stagingFile ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void confirmUpload()}
+                className="portal-btn-primary disabled:opacity-60"
+              >
+                {busy ? labels.uploading : labels.confirmUpload}
+              </button>
+            ) : stampUploaded && onPublish ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void confirmPublish()}
+                className="portal-btn-primary disabled:opacity-60"
+              >
+                {busy ? labels.publishing : labels.publish}
+              </button>
+            ) : null}
             <button
               type="button"
-              disabled={busy || (!stagingFile && !stampUploaded) || (!stagingFile && !onPublish)}
-              onClick={() => void confirmPublish()}
-              className="portal-btn-primary disabled:opacity-60"
+              disabled={busy}
+              onClick={closePreview}
+              className="portal-btn-secondary disabled:opacity-60"
             >
-              {busy ? labels.publishing : labels.publish}
+              {labels.close}
             </button>
           </div>
         </div>

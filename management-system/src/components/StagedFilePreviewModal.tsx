@@ -1,4 +1,8 @@
 import { useEffect, useId, useState } from 'react'
+import {
+  formatFileSize,
+  isFileTooLargeForInlinePreview,
+} from '../utils/fileUploadLimits'
 import { ModalCloseButton } from './ModalCloseButton'
 
 const PREVIEWABLE_IMAGE = /^image\//i
@@ -8,6 +12,7 @@ export type StagedFilePreviewLabels = {
   confirmFile: string
   cancelPick: string
   previewUnavailable: string
+  previewSkippedLarge?: string
   queueProgress?: string
 }
 
@@ -54,6 +59,10 @@ export function StagedFilePreviewModal({
       setObjectUrl(null)
       return
     }
+    if (isFileTooLargeForInlinePreview(file)) {
+      setObjectUrl(null)
+      return
+    }
     const url = URL.createObjectURL(file)
     setObjectUrl(url)
     return () => URL.revokeObjectURL(url)
@@ -74,7 +83,11 @@ export function StagedFilePreviewModal({
 
   if (!open || !file || typeof document === 'undefined') return null
 
-  const canPreview = isPdfFile(file) || isImageFile(file)
+  const previewSkippedLarge = isFileTooLargeForInlinePreview(file)
+  const canPreview = !previewSkippedLarge && (isPdfFile(file) || isImageFile(file))
+  const previewSkippedMessage =
+    labels.previewSkippedLarge?.replace('{size}', formatFileSize(file.size)) ??
+    labels.previewUnavailable
   const confirmClass =
     accent === 'emerald'
       ? portalUI
@@ -153,9 +166,15 @@ export function StagedFilePreviewModal({
               <img
                 src={objectUrl}
                 alt={file.name}
+                loading="lazy"
+                decoding="async"
                 className="mx-auto max-h-[min(65vh,680px)] max-w-full rounded-lg object-contain"
               />
             )
+          ) : previewSkippedLarge ? (
+            <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-600/40 dark:bg-amber-950/30 dark:text-amber-100">
+              {previewSkippedMessage}
+            </p>
           ) : (
             <p className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
               {labels.previewUnavailable}

@@ -63,7 +63,11 @@ export function RealtimeProvider({ children }: { children: ReactNode }) {
     const instance = io(socketServerUrl(), {
       autoConnect: true,
       transports: ['websocket', 'polling'],
-      auth: authToken ? { token: authToken } : {},
+      auth: authToken
+        ? { token: authToken }
+        : user?.id && user?.role
+          ? { demoUserId: user.id, demoRole: user.role }
+          : {},
     })
 
     instance.on('connect', () => setConnected(true))
