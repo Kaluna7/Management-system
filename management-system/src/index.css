@@ -223,8 +223,16 @@
     @apply relative z-[1];
   }
 
-  .portal-table-td--presence {
-    @apply relative z-10 flex items-center justify-end gap-2;
+  .portal-table-row--processing {
+    @apply bg-slate-50/80;
+  }
+
+  .portal-table-row--processing > .portal-table-td:not(.portal-table-td--status-presence) {
+    @apply opacity-45;
+  }
+
+  .portal-table-td--status-presence {
+    @apply flex items-center;
   }
 
   .portal-table-td-period {

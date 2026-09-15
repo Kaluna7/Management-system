@@ -21,7 +21,23 @@ export function RecordWorkingOverlay({
   const displayName = userName.trim() || 'User'
   const tip = title ?? displayName
 
-  const avatar = avatarPreset ? (
+  const avatarInline = avatarPreset ? (
+    <CartoonPresetAvatar
+      presetId={avatarPreset}
+      size="sm"
+      className="!h-6 !w-6 ring-2 ring-white shadow-sm dark:ring-slate-800"
+      title={tip}
+    />
+  ) : (
+    <span
+      className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-600 text-[10px] font-semibold text-white shadow-sm ring-2 ring-white dark:ring-slate-800"
+      title={tip}
+    >
+      {initial}
+    </span>
+  )
+
+  const avatarOverlay = avatarPreset ? (
     <CartoonPresetAvatar
       presetId={avatarPreset}
       size="sm"
@@ -39,18 +55,21 @@ export function RecordWorkingOverlay({
 
   if (variant === 'inline') {
     return (
-      <div className="flex min-w-0 flex-wrap items-center justify-end gap-2" title={tip}>
-        <span className="inline-flex shrink-0 rounded-full bg-emerald-600 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide text-white shadow-sm">
+      <div
+        className="inline-flex max-w-full items-center gap-1.5"
+        title={tip}
+      >
+        <span className="inline-flex h-6 shrink-0 items-center rounded-full bg-emerald-600 px-2.5 text-[10px] font-semibold uppercase leading-none tracking-wide text-white shadow-sm">
           {processingLabel}
         </span>
-        <div className="group relative shrink-0">
+        <div className="group relative flex h-6 w-6 shrink-0 items-center justify-center">
           <div
-            className="pointer-events-none absolute right-full top-1/2 z-40 mr-2 -translate-y-1/2 whitespace-nowrap rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100"
+            className="pointer-events-none absolute bottom-full left-1/2 z-40 mb-1.5 -translate-x-1/2 whitespace-nowrap rounded-lg bg-slate-900 px-2.5 py-1.5 text-xs font-medium text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100"
             role="tooltip"
           >
             {displayName}
           </div>
-          {avatar}
+          {avatarInline}
         </div>
       </div>
     )
@@ -77,7 +96,7 @@ export function RecordWorkingOverlay({
               aria-hidden
             />
           </div>
-          {avatar}
+          {avatarOverlay}
         </div>
       </div>
     </>

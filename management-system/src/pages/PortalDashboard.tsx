@@ -282,7 +282,7 @@ function FinanceTaskRow({
         </div>
       ) : null}
       <div
-        className={`portal-table-row portal-table-row--task relative ${zebraClass} ${rowBlocked ? 'z-20' : ''} ${pendingBuyerEdit ? '!border-amber-200 dark:!border-amber-500/30' : ''} ${taskPaused ? 'bg-slate-100/90 dark:bg-slate-800/40' : ''}`}
+        className={`portal-table-row portal-table-row--task relative ${zebraClass} ${rowBlocked ? 'z-20' : ''} ${blocked ? 'portal-table-row--processing' : ''} ${pendingBuyerEdit ? '!border-amber-200 dark:!border-amber-500/30' : ''} ${taskPaused ? 'bg-slate-100/90 dark:bg-slate-800/40' : ''}`}
       >
         <div className="portal-table-td min-w-0">
           <p className="truncate font-semibold portal-heading">{record.vendorName}</p>
@@ -300,7 +300,9 @@ function FinanceTaskRow({
         <div className="portal-table-td min-w-0">
           <p className="truncate text-xs portal-muted">{financeByText}</p>
         </div>
-        <div className={`portal-table-td flex min-w-0 flex-wrap items-center gap-1.5 ${rowBlocked && !remoteWorking ? 'pointer-events-none' : ''}`}>
+        <div
+          className={`portal-table-td flex min-w-0 flex-wrap items-center gap-1.5 ${remoteWorking ? 'portal-table-td--status-presence' : ''} ${rowBlocked && !remoteWorking ? 'pointer-events-none' : ''}`}
+        >
           {remoteWorking ? (
             <RecordWorkingOverlay
               variant="inline"
@@ -1399,7 +1401,7 @@ export function PortalDashboard() {
                             const blocked = Boolean(remoteWorking)
                             const recordDocuments =
                               userRole === 'buyers' ? listRecordDocuments(record) : []
-                            const rowClass = `${zebraClass} ${userRole === 'buyers' ? 'portal-table-row--overview-buyer' : 'portal-table-row--overview-finance'} ${blocked ? 'z-20' : 'portal-table-row--clickable'}`
+                            const rowClass = `${zebraClass} ${userRole === 'buyers' ? 'portal-table-row--overview-buyer' : 'portal-table-row--overview-finance'} ${blocked ? 'z-20 portal-table-row--processing' : 'portal-table-row--clickable'}`
                             return (
                               <div
                                 key={record.id}
@@ -1432,7 +1434,7 @@ export function PortalDashboard() {
                                 </div>
                                 <div
                                   className={`portal-table-td portal-table-td-period portal-body font-normal ${
-                                    isOverdue
+                                    isOverdue && !blocked
                                       ? 'font-semibold text-red-600 dark:text-red-400'
                                       : ''
                                   }`}
@@ -1445,7 +1447,9 @@ export function PortalDashboard() {
                                     {formatDate(record.periodEnd, dateLocale)}
                                   </span>
                                 </div>
-                                <div className="portal-table-td">
+                                <div
+                                  className={`portal-table-td ${blocked && remoteWorking ? 'portal-table-td--status-presence' : ''}`}
+                                >
                                   {blocked && remoteWorking ? (
                                     <RecordWorkingOverlay
                                       variant="inline"
@@ -1727,7 +1731,7 @@ export function PortalDashboard() {
                                 invoiceEditing,
                               )
                               const blocked = Boolean(remoteWorking)
-                              const rowClass = `${zebraClass} ${blocked ? 'z-20' : 'portal-table-row--clickable'}`
+                              const rowClass = `${zebraClass} ${blocked ? 'z-20 portal-table-row--processing' : 'portal-table-row--clickable'}`
                               return (
                                 <div
                                   key={record.id}
@@ -1777,7 +1781,7 @@ export function PortalDashboard() {
                                     )}
                                   </div>
                                   <div
-                                    className={`portal-table-td flex min-w-0 flex-wrap gap-1 ${blocked && remoteWorking ? 'portal-table-td--presence' : ''}`}
+                                    className={`portal-table-td flex min-w-0 flex-wrap items-center gap-1 ${blocked && remoteWorking ? 'portal-table-td--status-presence' : ''}`}
                                     onClick={(e) => e.stopPropagation()}
                                     onKeyDown={(e) => e.stopPropagation()}
                                   >
