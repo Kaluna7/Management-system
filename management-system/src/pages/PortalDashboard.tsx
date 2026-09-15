@@ -1347,6 +1347,9 @@ export function PortalDashboard() {
                           className={`portal-table-head portal-table-row ${userRole === 'buyers' ? 'portal-table-row--overview-buyer' : 'portal-table-row--overview-finance'}`}
                         >
                           <div className="portal-table-th">{t('vendorName')}</div>
+                          {userRole === 'buyers' ? (
+                            <div className="portal-table-th">{t('recordTableColCreator')}</div>
+                          ) : null}
                           <div className="portal-table-th">{t('recordTableColPeriod')}</div>
                           <div className="portal-table-th">{t('statusLabel').replace(/:$/, '')}</div>
                           {userRole === 'buyers' ? (
@@ -1421,6 +1424,16 @@ export function PortalDashboard() {
                                   <p className="truncate font-medium portal-heading">{record.vendorName}</p>
                                   <p className="portal-muted truncate text-xs font-normal">{record.vendorCode}</p>
                                 </div>
+                                {userRole === 'buyers' ? (
+                                  <div className="portal-table-td">
+                                    <p
+                                      className="truncate text-sm font-medium portal-heading"
+                                      title={record.createdBy?.trim() || undefined}
+                                    >
+                                      {record.createdBy?.trim() || '—'}
+                                    </p>
+                                  </div>
+                                ) : null}
                                 <div
                                   className={`portal-table-td portal-table-td-period portal-body font-normal ${
                                     isOverdue

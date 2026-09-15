@@ -187,8 +187,8 @@
   }
 
   .portal-table-row--overview-buyer {
-    grid-template-columns: minmax(160px, 1.7fr) minmax(150px, 1.2fr) minmax(110px, 0.9fr) minmax(150px, 1.2fr);
-    min-width: 700px;
+    grid-template-columns: minmax(150px, 1.5fr) minmax(110px, 0.95fr) minmax(140px, 1.1fr) minmax(100px, 0.85fr) minmax(140px, 1.1fr);
+    min-width: 780px;
   }
 
   .portal-table-row--overview-finance {
@@ -298,7 +298,7 @@
 
   @media (min-width: 768px) {
     .portal-table-row--overview-buyer {
-      grid-template-columns: minmax(180px, 1.7fr) minmax(160px, 1.25fr) minmax(120px, 0.9fr) minmax(160px, 1.2fr);
+      grid-template-columns: minmax(160px, 1.5fr) minmax(120px, 0.95fr) minmax(150px, 1.15fr) minmax(110px, 0.85fr) minmax(150px, 1.1fr);
       min-width: 0;
     }
 
