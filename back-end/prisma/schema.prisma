@@ -106,6 +106,8 @@ model BuyerRecord {
   amount              Float
   periodStart         DateTime
   periodEnd           DateTime
+  /** YYYY-MM — month buyer selected for finance invoice issuance (within period range). */
+  invoiceMonth        String?
   description         String
   createdBy           String
   /** true when created via admin-system (not management portal). */

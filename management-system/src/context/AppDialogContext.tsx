@@ -21,6 +21,7 @@ type ConfirmOptions = {
 type AlertState = {
   message: string
   title?: string
+  tone: 'default' | 'danger'
   resolve: () => void
 }
 
@@ -34,7 +35,11 @@ type ConfirmState = {
 }
 
 type AppDialogContextValue = {
-  showAlert: (message: string, title?: string) => Promise<void>
+  showAlert: (
+    message: string,
+    title?: string,
+    tone?: 'default' | 'danger',
+  ) => Promise<void>
   showConfirm: (message: string, options?: ConfirmOptions) => Promise<boolean>
 }
 
@@ -47,16 +52,19 @@ export function AppDialogProvider({ children }: { children: ReactNode }) {
   const alertBusy = useRef(false)
   const confirmBusy = useRef(false)
 
-  const showAlert = useCallback((message: string, title?: string) => {
-    return new Promise<void>((resolve) => {
-      if (alertBusy.current) {
-        resolve()
-        return
-      }
-      alertBusy.current = true
-      setAlertState({ message, title, resolve })
-    })
-  }, [])
+  const showAlert = useCallback(
+    (message: string, title?: string, tone: 'default' | 'danger' = 'default') => {
+      return new Promise<void>((resolve) => {
+        if (alertBusy.current) {
+          resolve()
+          return
+        }
+        alertBusy.current = true
+        setAlertState({ message, title, tone, resolve })
+      })
+    },
+    [],
+  )
 
   const showConfirm = useCallback(
     (message: string, options?: ConfirmOptions) => {
@@ -110,6 +118,7 @@ export function AppDialogProvider({ children }: { children: ReactNode }) {
         open={alertState != null}
         message={alertState?.message ?? ''}
         title={alertState?.title}
+        tone={alertState?.tone ?? 'default'}
         okLabel={t('dialogOk')}
         onClose={closeAlert}
       />

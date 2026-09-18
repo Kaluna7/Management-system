@@ -148,6 +148,7 @@ function normalizeRecord(raw: unknown): BuyerRecord | null {
     amount: asNumber(record.amount),
     periodStart: asString(record.periodStart),
     periodEnd: asString(record.periodEnd),
+    invoiceMonth: asString(record.invoiceMonth) || undefined,
     description: asString(record.description),
     createdBy: asString(record.createdBy),
     createdByAdmin: record.createdByAdmin === true,
@@ -280,6 +281,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
         fd.append('amount', String(input.amount))
         fd.append('periodStart', input.periodStart)
         fd.append('periodEnd', input.periodEnd)
+        fd.append('invoiceMonth', input.invoiceMonth)
         fd.append('description', input.description)
         fd.append('createdBy', createdBy)
         fd.append('createdByRole', createdByRole)
@@ -306,6 +308,7 @@ export function WorkflowProvider({ children }: { children: ReactNode }) {
         fd.append('amount', String(input.amount))
         fd.append('periodStart', input.periodStart)
         fd.append('periodEnd', input.periodEnd)
+        fd.append('invoiceMonth', input.invoiceMonth)
         fd.append('description', input.description)
         if (agreementUpload) {
           fd.append('agreementKeepSlots', JSON.stringify(agreementUpload.keepSlots))

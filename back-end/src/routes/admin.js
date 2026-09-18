@@ -185,6 +185,9 @@ router.patch("/records/:id", async (req, res) => {
     if (body.amount !== undefined) data.amount = Number(body.amount);
     if (body.periodStart !== undefined) data.periodStart = parseDateOrNull(body.periodStart, "periodStart");
     if (body.periodEnd !== undefined) data.periodEnd = parseDateOrNull(body.periodEnd, "periodEnd");
+    if (body.invoiceMonth !== undefined) {
+      data.invoiceMonth = String(body.invoiceMonth ?? "").trim() || null;
+    }
     if (body.description !== undefined) data.description = String(body.description);
     if (body.status !== undefined) data.status = String(body.status);
     if (body.invoiceReceived !== undefined) data.invoiceReceived = Boolean(body.invoiceReceived);

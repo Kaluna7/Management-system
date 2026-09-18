@@ -19,6 +19,8 @@ export interface BuyerRecord {
   amount: number
   periodStart: string
   periodEnd: string
+  /** YYYY-MM — month selected by buyer for finance invoice issuance. */
+  invoiceMonth?: string
   description: string
   createdBy: string
   createdByAdmin?: boolean
@@ -85,5 +87,7 @@ export interface BuyerInput {
   amount: number
   periodStart: string
   periodEnd: string
+  /** YYYY-MM — month for finance invoice issuance (within period). */
+  invoiceMonth: string
   description: string
 }

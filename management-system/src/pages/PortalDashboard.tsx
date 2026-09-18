@@ -83,12 +83,22 @@ import { useRecordPublishCelebration } from '../hooks/useRecordPublishCelebratio
 import { recordWorkingByOther } from '../utils/recordWorking'
 import { previewInvoiceNumberForRecord } from '../utils/invoiceNumberFromRecord'
 import { isFileTooLargeForUpload } from '../utils/fileUploadLimits'
+import {
+  formatInvoiceMonthLabel,
+  firstDayOfInvoiceMonth,
+  isInvoiceMonthInPeriod,
+  isInvoiceMonthOpen,
+  lastDayOfInvoiceMonth,
+  monthsBetweenInclusive,
+  normalizeInvoiceMonth,
+} from '../utils/invoiceMonth'
 import { VendorPickerField } from '../components/VendorPickerField'
 import { useVendors } from '../hooks/useVendors'
 import { useListPagination } from '../hooks/useListPagination'
 import {
   filterRecordList,
   recordMatchesSearch,
+  type InvoiceMonthScopeFilter,
   type RecordListStatusFilter,
 } from '../utils/recordListFilter'
 
@@ -107,13 +117,17 @@ function parseNumberInput(value: string) {
   return Number.isFinite(parsed) ? parsed : 0
 }
 
-function invoiceFieldDefaults(invoice: InvoiceData | undefined, userName: string) {
+function invoiceFieldDefaults(
+  invoice: InvoiceData | undefined,
+  userName: string,
+  invoiceMonth?: string,
+) {
   if (!invoice) {
     return {
       number: '',
       attn: userName,
       paymentMethod: 'Transfer' as InvoiceData['paymentMethod'],
-      dueDate: '',
+      dueDate: invoiceMonth ? lastDayOfInvoiceMonth(invoiceMonth) : '',
       memo: '',
       vatPercent: 11,
       taxType: 'Tax art 23' as InvoiceData['taxType'],
@@ -132,7 +146,7 @@ function invoiceFieldDefaults(invoice: InvoiceData | undefined, userName: string
     number: invoice.number,
     attn: invoice.attn,
     paymentMethod: invoice.paymentMethod,
-    dueDate: invoice.dueDate,
+    dueDate: invoice.dueDate || (invoiceMonth ? lastDayOfInvoiceMonth(invoiceMonth) : ''),
     memo: invoice.memo,
     vatPercent: invoice.vatPercent,
     taxType: invoice.taxType,
@@ -563,6 +577,7 @@ export function PortalDashboard() {
   const [buyerIncomeType, setBuyerIncomeType] = useState('')
   const [buyerDescription, setBuyerDescription] = useState('')
   const [periodRange, setPeriodRange] = useState<PeriodRangeValue>({ start: '', end: '' })
+  const [invoiceMonth, setInvoiceMonth] = useState('')
   const [isInvoiceModalOpen, setIsInvoiceModalOpen] = useState(false)
   const [buyerFormBusy, setBuyerFormBusy] = useState(false)
   const [invoiceFormBusy, setInvoiceFormBusy] = useState(false)
@@ -580,6 +595,8 @@ export function PortalDashboard() {
   const [archiveFilterDate, setArchiveFilterDate] = useState('')
   const [listSearchQuery, setListSearchQuery] = useState('')
   const [listStatusFilter, setListStatusFilter] = useState<RecordListStatusFilter>('all')
+  const [invoiceMonthScopeFilter, setInvoiceMonthScopeFilter] =
+    useState<InvoiceMonthScopeFilter>('all')
   const [docPreview, setDocPreview] = useState<{
     recordId: string
     kind: RecordFileKind
@@ -611,13 +628,32 @@ export function PortalDashboard() {
   const resetListFilters = useCallback(() => {
     setListSearchQuery('')
     setListStatusFilter('all')
+    setInvoiceMonthScopeFilter('all')
   }, [])
+
+  const handleStatusFilterChange = useCallback((value: RecordListStatusFilter) => {
+    setListStatusFilter(value)
+    if (value !== 'invoice_month') {
+      setInvoiceMonthScopeFilter('all')
+    }
+  }, [])
+
+  const invoiceMonthScopeOptions = useMemo(
+    () => [
+      { value: 'all' as const, label: t('recordFilterInvoiceMonthAll') },
+      { value: 'this_month' as const, label: t('recordFilterInvoiceMonthThis') },
+      { value: 'next_month' as const, label: t('recordFilterInvoiceMonthNext') },
+      { value: 'last_month' as const, label: t('recordFilterInvoiceMonthLast') },
+    ],
+    [t],
+  )
 
   const overviewStatusOptions = useMemo((): RecordListFilterOption[] => {
     const opts: RecordListFilterOption[] = [
       { value: 'all', label: t('recordFilterStatusAll') },
       { value: 'reminder', label: t('recordFilterStatusReminder') },
       { value: 'normal', label: t('recordFilterStatusNormal') },
+      { value: 'invoice_month', label: t('recordFilterStatusInvoiceMonth') },
     ]
     if (userRole === 'buyers') {
       opts.push(
@@ -633,6 +669,7 @@ export function PortalDashboard() {
       { value: 'all', label: t('recordFilterStatusAll') },
       { value: 'edit_request', label: t('recordFilterStatusEditRequest') },
       { value: 'stamp_upload', label: t('recordFilterStatusStampUpload') },
+      { value: 'invoice_month', label: t('recordFilterStatusInvoiceMonth') },
     ],
     [t],
   )
@@ -643,8 +680,9 @@ export function PortalDashboard() {
         query: listSearchQuery,
         status: listStatusFilter,
         role: userRole,
+        invoiceMonthScope: invoiceMonthScopeFilter,
       }),
-    [activeDashboardRecords, listSearchQuery, listStatusFilter, userRole],
+    [activeDashboardRecords, listSearchQuery, listStatusFilter, invoiceMonthScopeFilter, userRole],
   )
 
   const financeTaskFiltered = useMemo(
@@ -653,8 +691,9 @@ export function PortalDashboard() {
         query: listSearchQuery,
         status: listStatusFilter,
         role: userRole,
+        invoiceMonthScope: invoiceMonthScopeFilter,
       }),
-    [financeTaskRecords, listSearchQuery, listStatusFilter, userRole],
+    [financeTaskRecords, listSearchQuery, listStatusFilter, invoiceMonthScopeFilter, userRole],
   )
 
   const buyerHistoryFiltered = useMemo(
@@ -667,10 +706,10 @@ export function PortalDashboard() {
     [buyerHistoryRecords, listSearchQuery, userRole],
   )
 
-  const overviewListKey = `${listSearchQuery}|${listStatusFilter}|overview`
+  const overviewListKey = `${listSearchQuery}|${listStatusFilter}|${invoiceMonthScopeFilter}|overview`
   const overviewPagination = useListPagination(activeDashboardFiltered, overviewListKey)
 
-  const financeTaskListKey = `${listSearchQuery}|${listStatusFilter}|task`
+  const financeTaskListKey = `${listSearchQuery}|${listStatusFilter}|${invoiceMonthScopeFilter}|task`
   const financeTaskPagination = useListPagination(financeTaskFiltered, financeTaskListKey)
 
   const financeArchiveFiltered = useMemo(() => {
@@ -747,9 +786,25 @@ export function PortalDashboard() {
   )
 
   const selectedInvoiceDefaults = useMemo(
-    () => invoiceFieldDefaults(selectedRecord?.invoice, userName),
-    [selectedRecord?.invoice, selectedRecord?.id, userName],
+    () => invoiceFieldDefaults(selectedRecord?.invoice, userName, selectedRecord?.invoiceMonth),
+    [selectedRecord?.invoice, selectedRecord?.id, selectedRecord?.invoiceMonth, userName],
   )
+
+  const buyerInvoiceMonthOptions = useMemo(() => {
+    if (!periodRange.start || !periodRange.end) return [] as string[]
+    return monthsBetweenInclusive(periodRange.start, periodRange.end)
+  }, [periodRange.start, periodRange.end])
+
+  useEffect(() => {
+    if (!invoiceMonth) return
+    if (buyerInvoiceMonthOptions.length === 0) {
+      setInvoiceMonth('')
+      return
+    }
+    if (!buyerInvoiceMonthOptions.includes(invoiceMonth)) {
+      setInvoiceMonth('')
+    }
+  }, [buyerInvoiceMonthOptions, invoiceMonth])
   const isEditingInvoice = Boolean(
     selectedRecord && financeNeedsStampUpload(selectedRecord) && selectedRecord.invoice,
   )
@@ -922,7 +977,19 @@ export function PortalDashboard() {
   function goToInvoiceForRecord(recordId: string) {
     if (isRecordBlockedByOther(recordId)) return
     const record = records.find((r) => r.id === recordId)
-    if (record && isFinanceTaskPausedForBuyerEdit(record)) return
+    if (!record) return
+    if (isFinanceTaskPausedForBuyerEdit(record)) return
+    if (financeInvoiceNotDone(record) && !isInvoiceMonthOpen(record.invoiceMonth)) {
+      void showAlert(
+        t('invoiceMonthNotOpen').replace(
+          '{month}',
+          formatInvoiceMonthLabel(record.invoiceMonth ?? '', dateLocale),
+        ),
+        t('invoiceMonthNotOpenTitle'),
+        'danger',
+      )
+      return
+    }
     setSelectedRecordId(recordId)
     setDetailRecordId(null)
     setIsInvoiceModalOpen(true)
@@ -939,6 +1006,7 @@ export function PortalDashboard() {
     setBuyerIncomeType('')
     setBuyerDescription('')
     setPeriodRange({ start: '', end: '' })
+    setInvoiceMonth('')
   }
 
   function openBuyerCreateModal() {
@@ -950,6 +1018,7 @@ export function PortalDashboard() {
     setBuyerIncomeType('')
     setBuyerDescription('')
     setPeriodRange({ start: '', end: '' })
+    setInvoiceMonth('')
     setIsCreateModalOpen(true)
   }
 
@@ -964,6 +1033,7 @@ export function PortalDashboard() {
       start: periodIsoToDateInput(record.periodStart),
       end: periodIsoToDateInput(record.periodEnd),
     })
+    setInvoiceMonth(normalizeInvoiceMonth(record.invoiceMonth))
     setAgreementFiles([])
     setRemovedExistingAgreementSlots(new Set())
     setDetailRecordId(null)
@@ -1034,6 +1104,15 @@ export function PortalDashboard() {
       void showAlert(t('periodRangeOrderInvalid'))
       return
     }
+    const selectedInvoiceMonth = normalizeInvoiceMonth(invoiceMonth)
+    if (!selectedInvoiceMonth) {
+      void showAlert(t('invoiceMonthRequired'))
+      return
+    }
+    if (!isInvoiceMonthInPeriod(selectedInvoiceMonth, periodRange.start, periodRange.end)) {
+      void showAlert(t('invoiceMonthInvalid'))
+      return
+    }
 
     const keepSlots = existingAgreementNames
       .map((_, index) => index)
@@ -1062,6 +1141,7 @@ export function PortalDashboard() {
       amount: amountParsed,
       periodStart: periodRange.start,
       periodEnd: periodRange.end,
+      invoiceMonth: selectedInvoiceMonth,
       description: buyerDescription.trim(),
     }
 
@@ -1327,12 +1407,20 @@ export function PortalDashboard() {
                     searchLabel={t('recordFilterSearchLabel')}
                     searchPlaceholder={t('recordFilterSearchPlaceholder')}
                     statusFilter={listStatusFilter}
-                    onStatusFilterChange={setListStatusFilter}
+                    onStatusFilterChange={handleStatusFilterChange}
                     statusLabel={t('recordFilterStatusLabel')}
                     statusOptions={overviewStatusOptions}
                     resetLabel={t('recordFilterReset')}
                     onReset={resetListFilters}
-                    showReset={listSearchQuery.trim() !== '' || listStatusFilter !== 'all'}
+                    showReset={
+                      listSearchQuery.trim() !== '' ||
+                      listStatusFilter !== 'all' ||
+                      invoiceMonthScopeFilter !== 'all'
+                    }
+                    invoiceMonthScope={invoiceMonthScopeFilter}
+                    onInvoiceMonthScopeChange={setInvoiceMonthScopeFilter}
+                    invoiceMonthScopeLabel={t('recordFilterInvoiceMonthScopeLabel')}
+                    invoiceMonthScopeOptions={invoiceMonthScopeOptions}
                   />
                   <div className="portal-table-wrap">
                     {activeDashboardRecords.length === 0 ? (
@@ -1351,6 +1439,7 @@ export function PortalDashboard() {
                           <div className="portal-table-th">{t('vendorName')}</div>
                           <div className="portal-table-th">{t('recordTableColCreator')}</div>
                           <div className="portal-table-th">{t('recordTableColPeriod')}</div>
+                          <div className="portal-table-th">{t('recordTableColInvoiceMonth')}</div>
                           <div className="portal-table-th">{t('statusLabel').replace(/:$/, '')}</div>
                           {userRole === 'buyers' ? (
                             <div className="portal-table-th">{t('recordTableColDocuments')}</div>
@@ -1447,6 +1536,26 @@ export function PortalDashboard() {
                                     {formatDate(record.periodEnd, dateLocale)}
                                   </span>
                                 </div>
+                                <div className="portal-table-td">
+                                  <p
+                                    className={`truncate text-sm portal-body ${
+                                      record.invoiceMonth
+                                        ? isInvoiceMonthOpen(record.invoiceMonth)
+                                          ? 'font-semibold text-emerald-600 dark:text-emerald-400'
+                                          : 'font-semibold text-amber-600 dark:text-amber-400'
+                                        : ''
+                                    }`}
+                                    title={
+                                      record.invoiceMonth
+                                        ? formatInvoiceMonthLabel(record.invoiceMonth, dateLocale)
+                                        : undefined
+                                    }
+                                  >
+                                    {record.invoiceMonth
+                                      ? formatInvoiceMonthLabel(record.invoiceMonth, dateLocale)
+                                      : '—'}
+                                  </p>
+                                </div>
                                 <div
                                   className={`portal-table-td ${blocked && remoteWorking ? 'portal-table-td--status-presence' : ''}`}
                                 >
@@ -1537,12 +1646,20 @@ export function PortalDashboard() {
                       searchLabel={t('recordFilterSearchLabel')}
                       searchPlaceholder={t('recordFilterSearchPlaceholder')}
                       statusFilter={listStatusFilter}
-                      onStatusFilterChange={setListStatusFilter}
+                      onStatusFilterChange={handleStatusFilterChange}
                       statusLabel={t('recordFilterStatusLabel')}
                       statusOptions={taskStatusOptions}
                       resetLabel={t('recordFilterReset')}
                       onReset={resetListFilters}
-                      showReset={listSearchQuery.trim() !== '' || listStatusFilter !== 'all'}
+                      showReset={
+                        listSearchQuery.trim() !== '' ||
+                        listStatusFilter !== 'all' ||
+                        invoiceMonthScopeFilter !== 'all'
+                      }
+                      invoiceMonthScope={invoiceMonthScopeFilter}
+                      onInvoiceMonthScopeChange={setInvoiceMonthScopeFilter}
+                      invoiceMonthScopeLabel={t('recordFilterInvoiceMonthScopeLabel')}
+                      invoiceMonthScopeOptions={invoiceMonthScopeOptions}
                     />
                     <div className="portal-table-wrap">
                       {financeTaskRecords.length === 0 ? (
@@ -2128,14 +2245,33 @@ export function PortalDashboard() {
                     name="dueDate"
                     defaultValue={selectedInvoiceDefaults.dueDate}
                     min={
-                      isEditingInvoice &&
-                      selectedInvoiceDefaults.dueDate < todayIsoDateLocal()
-                        ? undefined
-                        : todayIsoDateLocal()
+                      selectedRecord.invoiceMonth
+                        ? firstDayOfInvoiceMonth(selectedRecord.invoiceMonth)
+                        : isEditingInvoice &&
+                            selectedInvoiceDefaults.dueDate < todayIsoDateLocal()
+                          ? undefined
+                          : todayIsoDateLocal()
+                    }
+                    max={
+                      selectedRecord.invoiceMonth
+                        ? lastDayOfInvoiceMonth(selectedRecord.invoiceMonth)
+                        : undefined
                     }
                     required
                     className="portal-input"
                   />
+                  {selectedRecord.invoiceMonth ? (
+                    <span
+                      className={`block text-xs font-semibold ${
+                        isInvoiceMonthOpen(selectedRecord.invoiceMonth)
+                          ? 'text-emerald-600 dark:text-emerald-400'
+                          : 'text-amber-600 dark:text-amber-400'
+                      }`}
+                    >
+                      {t('invoiceMonthLabel')}:{' '}
+                      {formatInvoiceMonthLabel(selectedRecord.invoiceMonth, dateLocale)}
+                    </span>
+                  ) : null}
                 </label>
                 <label className="space-y-1 text-sm md:col-span-2">
                   <span>{t('invPphEmail')}</span>
@@ -2451,7 +2587,9 @@ export function PortalDashboard() {
               <div className="space-y-1 md:col-span-2">
                 <PeriodRangePicker
                   value={periodRange}
-                  onChange={setPeriodRange}
+                  onChange={(next) => {
+                    setPeriodRange(next)
+                  }}
                   displayLocale={dateLocale === 'id' ? 'id-ID' : 'en-GB'}
                   labels={{
                     combined: t('periodRangeLabel'),
@@ -2462,6 +2600,59 @@ export function PortalDashboard() {
                   }}
                 />
               </div>
+              <label className="space-y-1 text-sm md:col-span-2">
+                <span>{t('invoiceMonthLabel')}</span>
+                <select
+                  value={invoiceMonth}
+                  onChange={(e) => setInvoiceMonth(e.target.value)}
+                  required={buyerInvoiceMonthOptions.length > 0}
+                  className={`portal-input ${
+                    invoiceMonth
+                      ? isInvoiceMonthOpen(invoiceMonth)
+                        ? 'font-semibold text-emerald-600 dark:text-emerald-400'
+                        : 'font-semibold text-amber-600 dark:text-amber-400'
+                      : ''
+                  }`}
+                  onMouseDown={(e) => {
+                    if (buyerInvoiceMonthOptions.length > 0) return
+                    e.preventDefault()
+                    void showAlert(
+                      t('invoiceMonthNeedPeriod'),
+                      t('invoiceMonthNeedPeriodTitle'),
+                      'danger',
+                    )
+                  }}
+                  onFocus={(e) => {
+                    if (buyerInvoiceMonthOptions.length > 0) return
+                    e.currentTarget.blur()
+                    void showAlert(
+                      t('invoiceMonthNeedPeriod'),
+                      t('invoiceMonthNeedPeriodTitle'),
+                      'danger',
+                    )
+                  }}
+                >
+                  <option value="">
+                    {buyerInvoiceMonthOptions.length === 0
+                      ? t('invoiceMonthEmptyPeriod')
+                      : t('invoiceMonthPlaceholder')}
+                  </option>
+                  {buyerInvoiceMonthOptions.map((ym) => (
+                    <option
+                      key={ym}
+                      value={ym}
+                      style={
+                        isInvoiceMonthOpen(ym)
+                          ? { color: '#059669', fontWeight: 600 }
+                          : { color: '#d97706', fontWeight: 600 }
+                      }
+                    >
+                      {formatInvoiceMonthLabel(ym, dateLocale)}
+                    </option>
+                  ))}
+                </select>
+                <span className="portal-muted block text-xs">{t('invoiceMonthHint')}</span>
+              </label>
               <label className="space-y-1 text-sm md:col-span-2">
                 <span>{t('description')}</span>
                 <textarea
@@ -2553,14 +2744,25 @@ export function PortalDashboard() {
                             {t('financeBuyerEditApprovedHint')}
                           </p>
                         ) : financeInvoiceNotDone(detailRecord) ? (
-                          <div className="flex justify-end">
-                            <button
-                              type="button"
-                              onClick={() => goToInvoiceForRecord(detailRecord.id)}
-                              className="portal-btn-primary px-4 py-2"
-                            >
-                              {t('financeContinueInvoice')}
-                            </button>
+                          <div className="flex w-full flex-col items-stretch gap-2 sm:items-end">
+                            {!isInvoiceMonthOpen(detailRecord.invoiceMonth) ? (
+                              <p className="rounded-xl border border-amber-200 bg-amber-50 px-3.5 py-2.5 text-sm text-amber-950 dark:border-amber-500/30 dark:bg-amber-950/30 dark:text-amber-100">
+                                {t('invoiceMonthNotOpen').replace(
+                                  '{month}',
+                                  formatInvoiceMonthLabel(detailRecord.invoiceMonth ?? '', dateLocale),
+                                )}
+                              </p>
+                            ) : null}
+                            <div className="flex justify-end">
+                              <button
+                                type="button"
+                                onClick={() => goToInvoiceForRecord(detailRecord.id)}
+                                disabled={!isInvoiceMonthOpen(detailRecord.invoiceMonth)}
+                                className="portal-btn-primary px-4 py-2 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                {t('financeContinueInvoice')}
+                              </button>
+                            </div>
                           </div>
                         ) : financeNeedsStampUpload(detailRecord) ? (
                           <div className="flex w-full flex-col items-stretch gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-end">

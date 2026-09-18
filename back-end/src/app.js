@@ -45,6 +45,11 @@ const {
   invalidateRecordsCache,
 } = require("./lib/memoryCache");
 const { parsePagination, paginationMeta } = require("./lib/pagination");
+const {
+  normalizeInvoiceMonth,
+  isInvoiceMonthInPeriod,
+  isInvoiceMonthOpen,
+} = require("./lib/invoiceMonth");
 
 const app = express();
 const upload = multer({
@@ -177,6 +182,23 @@ app.post("/api/records", agreementUploadMiddleware, async (req, res) => {
       return res.status(400).json({ message: `Maximum ${AGREEMENT_MAX} agreement files allowed.` });
     }
     let agreementFileName = uploads[0].originalname || String(body.agreementFileName || "").trim() || "agreement.pdf";
+    const periodStart = new Date(body.periodStart);
+    const periodEnd = new Date(body.periodEnd);
+    if (Number.isNaN(periodStart.getTime()) || Number.isNaN(periodEnd.getTime())) {
+      return res.status(400).json({ message: "Invalid period start or end date." });
+    }
+    if (periodEnd < periodStart) {
+      return res.status(400).json({ message: "Period end cannot be before period start." });
+    }
+    const invoiceMonth = normalizeInvoiceMonth(body.invoiceMonth);
+    if (!invoiceMonth) {
+      return res.status(400).json({ message: "Invoice issuance month is required." });
+    }
+    if (!isInvoiceMonthInPeriod(invoiceMonth, periodStart, periodEnd)) {
+      return res.status(400).json({
+        message: "Invoice issuance month must be within the selected period range.",
+      });
+    }
     const created = await prisma.buyerRecord.create({
       data: {
         vendorCode: body.vendorCode,
@@ -184,8 +206,9 @@ app.post("/api/records", agreementUploadMiddleware, async (req, res) => {
         incomeType: body.incomeType,
         agreementFileName,
         amount: Number(body.amount),
-        periodStart: new Date(body.periodStart),
-        periodEnd: new Date(body.periodEnd),
+        periodStart,
+        periodEnd,
+        invoiceMonth,
         description: body.description,
         createdBy: body.createdBy,
         createdByAdmin: false,
@@ -253,6 +276,38 @@ app.patch("/api/records/:id", agreementUploadMiddleware, async (req, res) => {
     if (body.periodStart !== undefined) data.periodStart = new Date(body.periodStart);
     if (body.periodEnd !== undefined) data.periodEnd = new Date(body.periodEnd);
     if (body.description !== undefined) data.description = String(body.description);
+
+    const nextPeriodStart =
+      data.periodStart instanceof Date ? data.periodStart : existing.periodStart;
+    const nextPeriodEnd =
+      data.periodEnd instanceof Date ? data.periodEnd : existing.periodEnd;
+    if (Number.isNaN(nextPeriodStart.getTime()) || Number.isNaN(nextPeriodEnd.getTime())) {
+      return res.status(400).json({ message: "Invalid period start or end date." });
+    }
+    if (nextPeriodEnd < nextPeriodStart) {
+      return res.status(400).json({ message: "Period end cannot be before period start." });
+    }
+
+    if (body.invoiceMonth !== undefined) {
+      const invoiceMonth = normalizeInvoiceMonth(body.invoiceMonth);
+      if (!invoiceMonth) {
+        return res.status(400).json({ message: "Invoice issuance month is required." });
+      }
+      if (!isInvoiceMonthInPeriod(invoiceMonth, nextPeriodStart, nextPeriodEnd)) {
+        return res.status(400).json({
+          message: "Invoice issuance month must be within the selected period range.",
+        });
+      }
+      data.invoiceMonth = invoiceMonth;
+    } else if (data.periodStart !== undefined || data.periodEnd !== undefined) {
+      const currentMonth = normalizeInvoiceMonth(existing.invoiceMonth);
+      if (currentMonth && !isInvoiceMonthInPeriod(currentMonth, nextPeriodStart, nextPeriodEnd)) {
+        return res.status(400).json({
+          message:
+            "Period changed — choose an invoice issuance month within the new period range.",
+        });
+      }
+    }
 
     const uploads = Array.isArray(req.agreementUploads) ? req.agreementUploads : [];
     const prevNames = getAgreementFileNames(existing);
@@ -335,6 +390,15 @@ app.post("/api/records/:id/invoice", formulaFormUploadMiddleware, async (req, re
     if (existing.buyerEditRequestStatus === "approved") {
       return res.status(409).json({
         message: "Buyer is editing this record. Finance actions are paused until the buyer saves.",
+      });
+    }
+    const invoiceAlreadyDone = ["document_generated", "archived", "history"].includes(
+      String(existing.status || ""),
+    );
+    if (!invoiceAlreadyDone && !isInvoiceMonthOpen(existing.invoiceMonth)) {
+      return res.status(403).json({
+        message:
+          "Invoice issuance month has not started yet. Finance can create this invoice starting from the selected month.",
       });
     }
     const invoiceRaw = req.body?.invoice;

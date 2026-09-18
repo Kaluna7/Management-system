@@ -57,6 +57,18 @@ function formatIdr(amount) {
   }
 }
 
+function formatInvoiceMonthLabel(invoiceMonth) {
+  const s = String(invoiceMonth ?? "").trim();
+  if (!/^\d{4}-\d{2}$/.test(s)) return "—";
+  const y = Number(s.slice(0, 4));
+  const m = Number(s.slice(5, 7));
+  if (!Number.isFinite(y) || m < 1 || m > 12) return "—";
+  return new Date(y, m - 1, 1).toLocaleDateString("en-GB", {
+    month: "long",
+    year: "numeric",
+  });
+}
+
 function formatDateLong(d) {
   try {
     return new Date(d).toLocaleDateString("en-GB", {
@@ -95,6 +107,12 @@ function recordDataBlock(record, daysLeft) {
     ["Amount", `<strong style="color:#4338ca;">${escapeHtml(formatIdr(record.amount))}</strong>`],
     ["Period", `${formatDateIso(record.periodStart)} — ${formatDateIso(record.periodEnd)}`],
     [
+      "Invoice month",
+      record.invoiceMonth
+        ? `<strong style="color:#4338ca;">${escapeHtml(formatInvoiceMonthLabel(record.invoiceMonth))}</strong>`
+        : "—",
+    ],
+    [
       "End date",
       `<strong style="color:#c2410c;">${endDate}</strong><br /><span style="font-size:12px;color:#64748b;">(${escapeHtml(daysLeftLabel(daysLeft))})</span>`,
     ],
@@ -111,6 +129,7 @@ function recordDataBlockText(record, daysLeft) {
     `Income type: ${record.incomeType}`,
     `Amount: ${formatIdr(record.amount)}`,
     `Period: ${formatDateIso(record.periodStart)} to ${formatDateIso(record.periodEnd)}`,
+    `Invoice month: ${record.invoiceMonth ? formatInvoiceMonthLabel(record.invoiceMonth) : "—"}`,
     `End date: ${formatDateLong(record.periodEnd)} (${daysLeftLabel(daysLeft)})`,
     `Status: ${record.status}`,
     `Description: ${(record.description || "").slice(0, 2000) || "—"}`,
@@ -182,7 +201,7 @@ function buildFinanceEmail(record) {
       ${recordDataBlock(record, daysLeft)}
       ${renderInfoCallout(
         "Recommended action",
-        "Open the Finly portal → review the record on Dashboard / Task → complete the invoice form if needed, then continue with stamped paper upload & publish as per workflow.",
+        "Open the Finly portal → review the record on Dashboard / Task → create the invoice for the selected invoice month if needed, then continue with stamped paper upload & publish as per workflow.",
         "blue",
       )}
       <p style="margin:8px 0 0;font-size:12px;color:#94a3b8;">Record ID: ${escapeHtml(record.id)}</p>

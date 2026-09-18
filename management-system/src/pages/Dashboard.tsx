@@ -139,6 +139,7 @@ export function Dashboard() {
     amount: 0,
     periodStart: '',
     periodEnd: '',
+    invoiceMonth: '',
     description: '',
   })
   const [invoiceForm, setInvoiceForm] = useState<InvoiceData>({
@@ -260,6 +261,10 @@ export function Dashboard() {
       void showAlert('Tanggal akhir tidak boleh sebelum tanggal awal.')
       return
     }
+    if (!buyerForm.invoiceMonth) {
+      void showAlert('Pilih bulan penerbitan invoice.')
+      return
+    }
     try {
       await createBuyerData(
         { ...buyerForm, amount: amountParsed, agreementFileName: agreementFile.name },
@@ -281,6 +286,7 @@ export function Dashboard() {
       amount: 0,
       periodStart: '',
       periodEnd: '',
+      invoiceMonth: '',
       description: '',
     })
     setAmountEarnedInput('')
@@ -906,6 +912,7 @@ export function Dashboard() {
                       ...prev,
                       periodStart: range.start,
                       periodEnd: range.end,
+                      invoiceMonth: '',
                     }))
                   }
                   displayLocale="id-ID"
@@ -918,6 +925,43 @@ export function Dashboard() {
                   }}
                 />
               </div>
+              <label className="space-y-1 text-sm md:col-span-2">
+                <span>Bulan penerbitan invoice</span>
+                <select
+                  value={buyerForm.invoiceMonth}
+                  onChange={(e) =>
+                    setBuyerForm((prev) => ({ ...prev, invoiceMonth: e.target.value }))
+                  }
+                  required
+                  className="w-full rounded-lg border border-slate-300 px-3 py-2"
+                >
+                  <option value="">Pilih bulan</option>
+                  {(buyerForm.periodStart && buyerForm.periodEnd
+                    ? (() => {
+                        const months: string[] = []
+                        const a = new Date(buyerForm.periodStart)
+                        const b = new Date(buyerForm.periodEnd)
+                        if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return months
+                        let y = a.getFullYear()
+                        let m = a.getMonth()
+                        while (y < b.getFullYear() || (y === b.getFullYear() && m <= b.getMonth())) {
+                          months.push(`${y}-${String(m + 1).padStart(2, '0')}`)
+                          m += 1
+                          if (m > 11) {
+                            m = 0
+                            y += 1
+                          }
+                        }
+                        return months
+                      })()
+                    : []
+                  ).map((ym) => (
+                    <option key={ym} value={ym}>
+                      {ym}
+                    </option>
+                  ))}
+                </select>
+              </label>
               <label className="space-y-1 text-sm md:col-span-2">
                 <span>Description</span>
                 <textarea

@@ -9,6 +9,7 @@ import {
   financeNeedsStampUpload,
 } from '../utils/financeRecordScope'
 import { resolveInvoiceNumberForRecord } from '../utils/invoiceNumberFromRecord'
+import { formatInvoiceMonthLabel, isInvoiceMonthOpen } from '../utils/invoiceMonth'
 import {
   listRecordDocuments,
   type RecordDocumentItem,
@@ -38,21 +39,25 @@ function DetailField({
   value,
   mono,
   multiline,
+  valueClassName,
 }: {
   label: string
   value: string
   fullWidth?: boolean
   mono?: boolean
   multiline?: boolean
+  valueClassName?: string
 }) {
   if (!value.trim()) return null
   return (
     <div className="min-w-0">
       <dt className="text-[11px] font-normal text-app-muted">{label}</dt>
       <dd
-        className={`mt-1.5 text-sm font-normal leading-relaxed text-app-text/90 ${
-          mono ? 'break-all font-mono text-[13px]' : 'break-words'
-        } ${multiline ? 'whitespace-pre-wrap' : ''}`}
+        className={`mt-1.5 text-sm font-normal leading-relaxed ${
+          valueClassName ?? 'text-app-text/90'
+        } ${mono ? 'break-all font-mono text-[13px]' : 'break-words'} ${
+          multiline ? 'whitespace-pre-wrap' : ''
+        }`}
       >
         {value}
       </dd>
@@ -315,6 +320,23 @@ export function FinanceRecordDetailView({
         </div>
         <div className="rounded-2xl border border-app-border bg-app-bg/50 px-3.5 py-3 sm:px-4 sm:py-3.5">
           <DetailField label={t('periodRangeLabel')} value={periodRange} />
+        </div>
+        <div className="rounded-2xl border border-app-border bg-app-bg/50 px-3.5 py-3 sm:px-4 sm:py-3.5">
+          <DetailField
+            label={t('invoiceMonthLabel')}
+            value={
+              record.invoiceMonth
+                ? formatInvoiceMonthLabel(record.invoiceMonth, dateLocale)
+                : '—'
+            }
+            valueClassName={
+              record.invoiceMonth
+                ? isInvoiceMonthOpen(record.invoiceMonth)
+                  ? 'font-semibold text-emerald-600 dark:text-emerald-400'
+                  : 'font-semibold text-amber-600 dark:text-amber-400'
+                : undefined
+            }
+          />
         </div>
         <div className="rounded-2xl border border-app-border bg-app-bg/50 px-3.5 py-3 sm:col-span-2 sm:px-4 sm:py-3.5">
           <DetailField
